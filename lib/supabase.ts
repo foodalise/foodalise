@@ -2,12 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!url || !anonKey) {
-  throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY. Copy .env.example to .env and fill them in.');
-}
+// The publishable key is meant to ship inside the app; row-level security in
+// supabase/migrations decides what it can read and write. A .env file overrides
+// both values, e.g. to point at a test project.
+const url = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://lqguuzjfjvksgfzmsdxx.supabase.co';
+const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_iiO9bDDI-_PA8iKg7BMWjw_zJrSArqu';
 
 export const supabase = createClient(url, anonKey, {
   auth: {

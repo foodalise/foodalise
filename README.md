@@ -19,7 +19,7 @@ Next up: loading chain menus and reading menu photos with AI.
 ## First-time setup
 
 1. **Supabase project.** Create a free project at [supabase.com](https://supabase.com). In the SQL editor, run `supabase/migrations/20261020000000_init.sql`. (Or, with the Supabase CLI: `supabase link` then `supabase db push`.)
-2. **Environment.** Copy `.env.example` to `.env` and fill in the URL and anon key from Supabase → Settings → API.
+2. **Environment.** The app already points at the Foodalise Supabase project. To use a different project, copy `.env.example` to `.env` and fill in its URL and publishable key.
 3. **Install and run.**
    ```bash
    npm install
