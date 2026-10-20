@@ -3,13 +3,15 @@ import { PHOTO_BUCKET, supabase } from './supabase';
 export type NewReview = {
   userId: string;
   dishId: string;
-  rating: number;
+  taste: number;
+  presentation: number;
+  value: number;
   body: string;
   photo: { uri: string; mimeType?: string | null } | null;
 };
 
 // Upload the photo first, so a failed upload never leaves a review without its picture.
-export async function postReview({ userId, dishId, rating, body, photo }: NewReview) {
+export async function postReview({ userId, dishId, taste, presentation, value, body, photo }: NewReview) {
   let photoPath: string | null = null;
   if (photo) {
     const contentType = photo.mimeType ?? 'image/jpeg';
@@ -21,7 +23,8 @@ export async function postReview({ userId, dishId, rating, body, photo }: NewRev
   }
 
   const { data: review, error } = await supabase.from('reviews')
-    .insert({ user_id: userId, dish_id: dishId, rating, body: body.trim() || null })
+    // The database recalculates rating from the three scores; this matches it.
+    .insert({ user_id: userId, dish_id: dishId, taste, presentation, value, rating: Math.round(((taste + presentation + value) / 3) * 10) / 10, body: body.trim() || null })
     .select('id').single();
   if (error || !review) {
     if (photoPath) await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);

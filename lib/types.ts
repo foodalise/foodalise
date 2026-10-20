@@ -1,6 +1,9 @@
 export type FeedReview = {
   id: string;
   rating: number;
+  taste: number | null;
+  presentation: number | null;
+  value: number | null;
   body: string | null;
   created_at: string;
   profiles: { id: string; username: string } | null;
@@ -19,7 +22,7 @@ export type Restaurant = {
 
 // Select string shared by the feed and profile so both get the same shape.
 export const REVIEW_SELECT =
-  'id, rating, body, created_at, profiles(id, username), dishes(id, name, restaurants(id, name)), review_photos(storage_path, position)';
+  'id, rating, taste, presentation, value, body, created_at, profiles(id, username), dishes(id, name, restaurants(id, name)), review_photos(storage_path, position)';
 
 export function firstPhoto(r: FeedReview) {
   return [...r.review_photos].sort((a, b) => a.position - b.position)[0]?.storage_path ?? null;
