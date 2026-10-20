@@ -1,11 +1,12 @@
 import { Image } from 'expo-image';
-import { router, Stack } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { router, Stack, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { Button, Empty, Label } from '@/components/ui';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
+import { deleteReview } from '@/lib/reviews';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { firstPhoto, REVIEW_SELECT, type FeedReview } from '@/lib/types';
 
@@ -27,8 +28,8 @@ export function ProfileView({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     const [profile, theirs, followerCount, followingCount, mine] = await Promise.all([
       supabase.from('profiles').select('username').eq('id', userId).single(),
       supabase.from('reviews').select(REVIEW_SELECT).eq('user_id', userId)
@@ -47,7 +48,8 @@ export function ProfileView({ userId }: { userId: string }) {
     setLoading(false);
   }, [userId, me, isMe]);
 
-  useEffect(() => { load(); }, [load]);
+  // Reload whenever the screen comes back into view, so new and deleted reviews show up.
+  useFocusEffect(useCallback(() => { load(true); }, [load]));
 
   async function toggleFollow() {
     if (!me) return;
@@ -60,12 +62,43 @@ export function ProfileView({ userId }: { userId: string }) {
     setBusy(false);
   }
 
+  function openDish(r: FeedReview) {
+    if (r.dishes) router.push({ pathname: '/dish/[id]', params: { id: r.dishes.id } });
+  }
+
+  // On your own page a photo offers Open or Delete; elsewhere it just opens the dish.
+  function onTile(r: FeedReview) {
+    if (!isMe) return openDish(r);
+    Alert.alert(r.dishes?.name ?? 'Your review', r.dishes?.restaurants?.name, [
+      { text: 'Open dish', onPress: () => openDish(r) },
+      { text: 'Delete review', style: 'destructive', onPress: () => confirmDelete(r) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  function confirmDelete(r: FeedReview) {
+    Alert.alert('Delete this review?', 'It will be removed from your page, the feed and the dish page. This can\'t be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          setError(null);
+          try {
+            await deleteReview(r.id);
+            setReviews((list) => list.filter((x) => x.id !== r.id));
+          } catch (e) {
+            setError((e as Error).message);
+          }
+        },
+      },
+    ]);
+  }
+
   const restaurants = new Set(reviews.map((r) => r.dishes?.restaurants?.id).filter(Boolean)).size;
   const avg = reviews.length ? reviews.reduce((s, r) => s + Number(r.rating), 0) / reviews.length : null;
 
   return (
     <ScrollView style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 16 }}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load()} />}>
       {!isMe ? <Stack.Screen options={{ title: username ? `@${username}` : '' }} /> : null}
       <View style={styles.head}>
         <View style={[styles.avatar, { backgroundColor: t.ink }]}>
@@ -93,14 +126,17 @@ export function ProfileView({ userId }: { userId: string }) {
         <Button variant={iFollow ? 'ghost' : 'primary'} title={iFollow ? 'Following' : 'Follow'} onPress={toggleFollow} busy={busy} />
       ) : null}
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
-      {reviews.length ? <Label>{isMe ? "Dishes I've tried" : 'Dishes tried'}</Label> : null}
+      {reviews.length ? <View style={{ gap: 2 }}>
+        <Label>{isMe ? "Dishes I've tried" : 'Dishes tried'}</Label>
+        {isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
+      </View> : null}
       {reviews.length ? (
         <View style={styles.grid}>
           {reviews.map((r) => {
             const p = firstPhoto(r);
             return (
               <Pressable key={r.id} accessibilityRole="button" accessibilityLabel={r.dishes?.name ?? 'Review photo'}
-                onPress={() => { if (r.dishes) router.push({ pathname: '/dish/[id]', params: { id: r.dishes.id } }); }}
+                onPress={() => onTile(r)}
                 style={{ width: cell, height: cell, borderRadius: 6, overflow: 'hidden', backgroundColor: t.bg }}>
                 {p ? <Image source={{ uri: photoUrl(p) }} style={{ width: cell, height: cell }} contentFit="cover" /> : null}
                 <Text style={styles.badge}>{formatScore(r.rating)}</Text>

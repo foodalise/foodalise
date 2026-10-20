@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { FlatList, RefreshControl, Text } from 'react-native';
 
 import { Empty, ReviewCard } from '@/components/ui';
@@ -12,8 +13,8 @@ export default function Feed() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     const { data, error } = await supabase.from('reviews').select(REVIEW_SELECT)
       .order('created_at', { ascending: false }).limit(30).returns<FeedReview[]>();
     setError(error ? error.message : null);
@@ -21,7 +22,8 @@ export default function Feed() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Reload whenever the screen comes back into view, so new and deleted reviews show up.
+  useFocusEffect(useCallback(() => { load(true); }, [load]));
 
   return (
     <FlatList
@@ -30,7 +32,7 @@ export default function Feed() {
       data={reviews}
       keyExtractor={(r) => r.id}
       renderItem={({ item }) => <ReviewCard review={item} />}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load()} />}
       ListHeaderComponent={error ? <Text style={{ color: t.lo }}>Couldn't load the feed: {error}</Text> : undefined}
       ListEmptyComponent={loading ? undefined : <Empty title="No reviews yet" body="Review a dish and it will show up here." />}
     />

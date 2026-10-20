@@ -53,3 +53,14 @@ export async function addDish(restaurantId: string, name: string, userId: string
   }
   throw new Error(`Couldn't add the dish: ${error?.message ?? 'unknown error'}`);
 }
+
+// Deletes one of your reviews everywhere: the review, its photo rows (removed by
+// the database along with it), the dish's score, and the photo files themselves.
+export async function deleteReview(reviewId: string) {
+  const { data: photos } = await supabase.from('review_photos').select('storage_path').eq('review_id', reviewId);
+  const { error } = await supabase.from('reviews').delete().eq('id', reviewId);
+  if (error) throw new Error(`Couldn't delete the review: ${error.message}`);
+  const paths = (photos ?? []).map((p) => p.storage_path);
+  // The review is already gone, so a leftover file is harmless; don't fail on it.
+  if (paths.length) await supabase.storage.from(PHOTO_BUCKET).remove(paths);
+}
