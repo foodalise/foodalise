@@ -26,7 +26,8 @@ Next up: loading chain menus and reading menu photos with AI.
    npx expo start
    ```
    Scan the QR code with the Expo Go app on your phone, or press `w` to open it in a browser.
-4. **Load restaurants.** Find your council's id, then import its restaurants, cafés, takeaways and pubs:
+4. **Sample data (optional).** Run `supabase/seed.sql` in the SQL editor to add eight London chain restaurants with their menus.
+5. **Load restaurants.** Find your council's id, then import its restaurants, cafés, takeaways and pubs:
    ```bash
    node --env-file=.env scripts/import-fsa.mjs --list-authorities | grep -i westminster
    node --env-file=.env scripts/import-fsa.mjs --authority <id>
