@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
@@ -75,10 +75,11 @@ export function ReviewCard({ review }: { review: FeedReview }) {
         <View style={[styles.avatar, { backgroundColor: t.ink }]}>
           <Text style={{ color: t.surface, fontWeight: '700' }}>{review.profiles?.username?.[0]?.toUpperCase() ?? '?'}</Text>
         </View>
-        <View style={{ flex: 1 }}>
+        <Pressable style={{ flex: 1 }} disabled={!review.profiles}
+          onPress={() => review.profiles && router.push({ pathname: '/user/[id]', params: { id: review.profiles.id } })}>
           <Text style={{ color: t.ink, fontWeight: '700' }}>@{review.profiles?.username ?? 'someone'}</Text>
           <Text style={{ color: t.muted, fontSize: 12 }}>{new Date(review.created_at).toLocaleDateString('en-GB')}</Text>
-        </View>
+        </Pressable>
         <ScorePill rating={review.rating} />
       </View>
       {photo ? <Image source={{ uri: photoUrl(photo) }} style={[styles.photo, { backgroundColor: t.bg }]} contentFit="cover" /> : null}
