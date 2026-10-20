@@ -1,9 +1,9 @@
 import { Image } from 'expo-image';
-import { Link, Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
-import { Button, Empty } from '@/components/ui';
+import { Button, Empty, Label } from '@/components/ui';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { photoUrl, supabase } from '@/lib/supabase';
@@ -16,6 +16,8 @@ export function ProfileView({ userId }: { userId: string }) {
   const { session } = useAuth();
   const me = session?.user.id;
   const isMe = me === userId;
+  // Three photos per row: screen width minus the 16pt page padding and two 4pt gaps.
+  const cell = Math.floor((useWindowDimensions().width - 32 - 8) / 3);
   const [username, setUsername] = useState<string | null>(null);
   const [reviews, setReviews] = useState<FeedReview[]>([]);
   const [followers, setFollowers] = useState(0);
@@ -91,17 +93,18 @@ export function ProfileView({ userId }: { userId: string }) {
         <Button variant={iFollow ? 'ghost' : 'primary'} title={iFollow ? 'Following' : 'Follow'} onPress={toggleFollow} busy={busy} />
       ) : null}
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
+      {reviews.length ? <Label>{isMe ? "Dishes I've tried" : 'Dishes tried'}</Label> : null}
       {reviews.length ? (
         <View style={styles.grid}>
           {reviews.map((r) => {
             const p = firstPhoto(r);
             return (
-              <Link key={r.id} href={{ pathname: '/dish/[id]', params: { id: r.dishes?.id ?? '' } }} asChild>
-                <Pressable style={StyleSheet.flatten([styles.cell, { backgroundColor: t.bg }])}>
-                  {p ? <Image source={{ uri: photoUrl(p) }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
-                  <Text style={styles.badge}>{formatScore(r.rating)}</Text>
-                </Pressable>
-              </Link>
+              <Pressable key={r.id} accessibilityRole="button" accessibilityLabel={r.dishes?.name ?? 'Review photo'}
+                onPress={() => { if (r.dishes) router.push({ pathname: '/dish/[id]', params: { id: r.dishes.id } }); }}
+                style={{ width: cell, height: cell, borderRadius: 6, overflow: 'hidden', backgroundColor: t.bg }}>
+                {p ? <Image source={{ uri: photoUrl(p) }} style={{ width: cell, height: cell }} contentFit="cover" /> : null}
+                <Text style={styles.badge}>{formatScore(r.rating)}</Text>
+              </Pressable>
             );
           })}
         </View>
@@ -122,6 +125,5 @@ const styles = StyleSheet.create({
   stat: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 10, alignItems: 'center' },
   statNum: { fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  cell: { width: '32.6%', aspectRatio: 1, borderRadius: 6, overflow: 'hidden' },
   badge: { position: 'absolute', right: 4, bottom: 4, backgroundColor: 'rgba(10,12,10,0.72)', color: '#fff', fontWeight: '800', fontSize: 11, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' },
 });
