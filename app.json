@@ -43,6 +43,12 @@
           "cameraPermission": "Foodalise uses your camera so you can photograph the dish you're reviewing.",
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Foodalise uses your location to show restaurants near you on the map."
+        }
       ]
     ],
     "experiments": {
