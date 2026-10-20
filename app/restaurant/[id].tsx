@@ -1,0 +1,72 @@
+import { Link, Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { Empty, Label, ScorePill } from '@/components/ui';
+import { useTheme } from '@/constants/theme';
+import { supabase } from '@/lib/supabase';
+import type { Restaurant } from '@/lib/types';
+
+type DishRow = { id: string; name: string; section: string | null; price_pence: number | null; review_count: number; avg_rating: number | null };
+
+const SOURCE_LABEL: Record<Restaurant['menu_source'], string> = {
+  chain: 'Chain menu loaded', website: 'Menu read from website', users: 'Menu added by diners', none: 'No menu yet',
+};
+
+export default function RestaurantScreen() {
+  const t = useTheme();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [dishes, setDishes] = useState<DishRow[]>([]);
+
+  useEffect(() => {
+    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source').eq('id', id).single()
+      .then(({ data }) => setRestaurant(data));
+    supabase.from('dishes').select('id, name, section, price_pence, review_count, avg_rating').eq('restaurant_id', id).order('name')
+      .returns<DishRow[]>().then(({ data }) => setDishes(data ?? []));
+  }, [id]);
+
+  const sections = [...new Set(dishes.map((d) => d.section ?? 'Menu'))];
+
+  return (
+    <ScrollView style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 14 }}>
+      <Stack.Screen options={{ title: restaurant?.name ?? '' }} />
+      {restaurant ? (
+        <View style={{ gap: 8 }}>
+          <Text style={[styles.title, { color: t.ink }]}>{restaurant.name}</Text>
+          <Text style={{ color: t.muted }}>{[restaurant.address, restaurant.postcode].filter(Boolean).join(', ')}</Text>
+          <View style={styles.chips}>
+            {restaurant.hygiene_rating ? <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>Food hygiene {restaurant.hygiene_rating}</Text> : null}
+            <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>{SOURCE_LABEL[restaurant.menu_source]}</Text>
+          </View>
+        </View>
+      ) : null}
+      {dishes.length === 0 ? <Empty title="No dishes yet" body="Be the first to add one when posting a review." /> : null}
+      {sections.map((s) => (
+        <View key={s} style={{ gap: 2 }}>
+          <Label>{s}</Label>
+          {dishes.filter((d) => (d.section ?? 'Menu') === s).map((d) => (
+            <Link key={d.id} href={{ pathname: '/dish/[id]', params: { id: d.id } }} asChild>
+              <Pressable style={[styles.row, { borderBottomColor: t.line }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: t.ink, fontWeight: '600', fontSize: 15 }}>{d.name}</Text>
+                  <Text style={{ color: t.muted, fontSize: 12 }}>
+                    {d.review_count} {d.review_count === 1 ? 'review' : 'reviews'}{d.price_pence != null ? ` · £${(d.price_pence / 100).toFixed(2)}` : ''}
+                  </Text>
+                </View>
+                {d.avg_rating != null ? <ScorePill rating={Number(d.avg_rating)} /> : null}
+              </Pressable>
+            </Link>
+          ))}
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
+  chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, fontSize: 12, fontWeight: '600', overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth },
+});
