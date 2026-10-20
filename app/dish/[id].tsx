@@ -1,9 +1,9 @@
 import { Image } from 'expo-image';
-import { Link, Stack, useLocalSearchParams } from 'expo-router';
+import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Empty, Label, ReviewCard, ScorePill } from '@/components/ui';
+import { Button, Empty, Label, ReviewCard, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { firstPhoto, REVIEW_SELECT, type FeedReview } from '@/lib/types';
@@ -45,6 +45,7 @@ export default function DishScreen() {
         </View>
         <ScorePill rating={avg} />
       </View>
+      <Button title="Review this dish" onPress={() => router.push({ pathname: '/review', params: { dishId: id } })} />
       <Label>{reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}</Label>
       {reviews.length ? reviews.map((r) => <ReviewCard key={r.id} review={r} />) : <Empty title="No reviews yet" body="Yours could be the first." />}
     </ScrollView>

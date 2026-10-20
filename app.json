@@ -35,6 +35,14 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Foodalise uses your photos so you can add a picture of the dish you're reviewing.",
+          "cameraPermission": "Foodalise uses your camera so you can photograph the dish you're reviewing.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

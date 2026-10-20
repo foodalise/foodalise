@@ -1,8 +1,8 @@
-import { Link, Stack, useLocalSearchParams } from 'expo-router';
+import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Empty, Label, ScorePill } from '@/components/ui';
+import { Button, Empty, Label, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
@@ -41,6 +41,7 @@ export default function RestaurantScreen() {
           </View>
         </View>
       ) : null}
+      <Button title="Review a dish here" onPress={() => router.push({ pathname: '/review', params: { restaurantId: id } })} />
       {dishes.length === 0 ? <Empty title="No dishes yet" body="Be the first to add one when posting a review." /> : null}
       {sections.map((s) => (
         <View key={s} style={{ gap: 2 }}>

@@ -12,8 +12,9 @@ Built with [Expo](https://expo.dev) (iOS, Android and web from one codebase) and
 - Restaurant page with its menu, grouped by section, with each dish's average score
 - Dish page with everyone's photos and reviews
 - Your profile: dishes, restaurants and average score, plus a photo grid
+- Post a review: pick a restaurant, pick the dish (or add it if it's missing), add a photo and a score out of 10
 
-Next up: posting a review (restaurant → dish → photo and score), adding a missing dish, loading chain menus, and reading menu photos with AI.
+Next up: loading chain menus and reading menu photos with AI.
 
 ## First-time setup
 
