@@ -90,6 +90,11 @@ export function ReviewCard({ review }: { review: FeedReview }) {
           </Pressable>
         </Link>
       ) : null}
+      {review.taste != null && review.presentation != null && review.value != null ? (
+        <Text style={{ color: t.muted, fontSize: 13 }}>
+          Taste {formatScore(review.taste)} · Presentation {formatScore(review.presentation)} · Value {formatScore(review.value)}
+        </Text>
+      ) : null}
       {review.body ? <Text style={{ color: t.ink, lineHeight: 21 }}>{review.body}</Text> : null}
     </View>
   );

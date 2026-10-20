@@ -4,8 +4,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { OverallBar, ScoreSlider } from '@/components/ScoreSlider';
 import { Button, Empty, Field, Label } from '@/components/ui';
-import { formatScore, scoreColor, useTheme } from '@/constants/theme';
+import { useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { addDish, postReview } from '@/lib/reviews';
 import { supabase } from '@/lib/supabase';
@@ -13,6 +14,14 @@ import type { Restaurant } from '@/lib/types';
 
 type Dish = { id: string; name: string; section: string | null };
 type Photo = { uri: string; mimeType?: string | null };
+type Scores = { taste: number; presentation: number; value: number };
+
+const START: Scores = { taste: 8, presentation: 8, value: 8 };
+const CRITERIA: { key: keyof Scores; label: string }[] = [
+  { key: 'taste', label: 'Taste' },
+  { key: 'presentation', label: 'Presentation' },
+  { key: 'value', label: 'Value for money' },
+];
 
 export default function Review() {
   const t = useTheme();
@@ -25,7 +34,7 @@ export default function Review() {
   const [restaurants, setRestaurants] = useState<Pick<Restaurant, 'id' | 'name' | 'address'>[]>([]);
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [photo, setPhoto] = useState<Photo | null>(null);
-  const [rating, setRating] = useState(8);
+  const [scores, setScores] = useState<Scores>(START);
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +76,7 @@ export default function Review() {
   }, [restaurant]);
 
   function reset() {
-    setRestaurant(null); setDish(null); setQ(''); setPhoto(null); setRating(8); setBody(''); setError(null);
+    setRestaurant(null); setDish(null); setQ(''); setPhoto(null); setScores(START); setBody(''); setError(null);
     router.setParams({ restaurantId: undefined, dishId: undefined });
   }
 
@@ -92,7 +101,7 @@ export default function Review() {
     if (!dish || !session || !photo) return;
     setBusy(true); setError(null);
     try {
-      await postReview({ userId: session.user.id, dishId: dish.id, rating, body, photo });
+      await postReview({ userId: session.user.id, dishId: dish.id, ...scores, body, photo });
       const id = dish.id;
       reset();
       router.push({ pathname: '/dish/[id]', params: { id } });
@@ -104,6 +113,7 @@ export default function Review() {
   }
 
   const step = !restaurant ? 1 : !dish ? 2 : 3;
+  const overall = (scores.taste + scores.presentation + scores.value) / 3;
   const term = q.trim().toLowerCase();
   const shownDishes = dishes.filter((d) => !term || d.name.toLowerCase().includes(term));
 
@@ -152,19 +162,15 @@ export default function Review() {
               <Text style={[styles.h, { color: t.ink }]}>{dish.name}</Text>
               <Text style={{ color: t.muted }}>at {restaurant.name}</Text>
             </View>
+            <OverallBar value={overall} />
+            {CRITERIA.map(({ key, label }) => (
+              <ScoreSlider key={key} label={label} value={scores[key]} onChange={(n) => setScores((sc) => ({ ...sc, [key]: n }))} />
+            ))}
+
             {photo ? <Image source={{ uri: photo.uri }} style={[styles.photo, { backgroundColor: t.bg }]} contentFit="cover" /> : null}
             <View style={styles.pair}>
               <View style={{ flex: 1 }}><Button variant="ghost" title="Take photo" onPress={() => pickPhoto(true)} /></View>
               <View style={{ flex: 1 }}><Button variant="ghost" title={photo ? 'Change photo' : 'Choose photo'} onPress={() => pickPhoto(false)} /></View>
-            </View>
-
-            <Label>Your score</Label>
-            <View style={styles.scoreRow}>
-              <Pressable accessibilityRole="button" accessibilityLabel="Lower score" onPress={() => setRating((r) => Math.max(1, r - 0.5))}
-                style={[styles.stepBtn, { borderColor: t.line }]}><Text style={[styles.stepTxt, { color: t.ink }]}>−</Text></Pressable>
-              <Text style={[styles.score, { color: scoreColor(t, rating) }]}>{formatScore(rating)}<Text style={{ fontSize: 16, color: t.muted }}>/10</Text></Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="Raise score" onPress={() => setRating((r) => Math.min(10, r + 0.5))}
-                style={[styles.stepBtn, { borderColor: t.line }]}><Text style={[styles.stepTxt, { color: t.ink }]}>+</Text></Pressable>
             </View>
 
             <Label>Your review</Label>
@@ -192,8 +198,4 @@ const styles = StyleSheet.create({
   rowTitle: { fontWeight: '600', fontSize: 15 },
   photo: { width: '100%', aspectRatio: 1, borderRadius: 12 },
   pair: { flexDirection: 'row', gap: 8 },
-  scoreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  stepBtn: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  stepTxt: { fontSize: 26, fontWeight: '500' },
-  score: { fontSize: 44, fontWeight: '800', fontVariant: ['tabular-nums'] },
 });
