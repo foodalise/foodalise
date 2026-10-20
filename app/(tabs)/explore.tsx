@@ -43,7 +43,7 @@ export default function Explore() {
       keyExtractor={(r) => r.id}
       renderItem={({ item }) => (
         <Link href={{ pathname: '/restaurant/[id]', params: { id: item.id } }} asChild>
-          <Pressable style={[styles.row, { borderBottomColor: t.line }]}>
+          <Pressable style={StyleSheet.flatten([styles.row, { borderBottomColor: t.line }])}>
             <Text style={{ color: t.ink, fontWeight: '600', fontSize: 15 }}>{item.name}</Text>
             <Text style={{ color: t.muted, fontSize: 12 }}>{[item.address, item.postcode].filter(Boolean).join(', ')}</Text>
           </Pressable>

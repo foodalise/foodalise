@@ -48,7 +48,7 @@ export default function RestaurantScreen() {
           <Label>{s}</Label>
           {dishes.filter((d) => (d.section ?? 'Menu') === s).map((d) => (
             <Link key={d.id} href={{ pathname: '/dish/[id]', params: { id: d.id } }} asChild>
-              <Pressable style={[styles.row, { borderBottomColor: t.line }]}>
+              <Pressable style={StyleSheet.flatten([styles.row, { borderBottomColor: t.line }])}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: t.ink, fontWeight: '600', fontSize: 15 }}>{d.name}</Text>
                   <Text style={{ color: t.muted, fontSize: 12 }}>
