@@ -1,4 +1,4 @@
-# Foodalize
+# Foodalise
 
 Review individual dishes, not just restaurants. Pick a restaurant, pick the dish you ate, post a photo and a score out of 10, and build a food diary of everything you've tried.
 

@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "Foodalize",
-    "slug": "foodalize",
+    "name": "Foodalise",
+    "slug": "foodalise",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "foodalize",
+    "scheme": "foodalise",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "app.foodalize"
+      "bundleIdentifier": "app.foodalise"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +19,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "app.foodalize"
+      "package": "app.foodalise"
     },
     "web": {
       "bundler": "metro",

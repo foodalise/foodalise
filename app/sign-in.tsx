@@ -36,7 +36,7 @@ export default function SignIn() {
     <SafeAreaView style={{ flex: 1, backgroundColor: t.surface }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.brand, { color: t.ink }]}>foodalize<Text style={{ color: t.hi }}>.</Text></Text>
+          <Text style={[styles.brand, { color: t.ink }]}>foodalise<Text style={{ color: t.hi }}>.</Text></Text>
           <Text style={[styles.tagline, { color: t.muted }]}>Every dish you've tried, photographed and scored.</Text>
           <View style={styles.form}>
             {mode === 'up' ? (

@@ -1,4 +1,4 @@
--- Foodalize core schema: people, restaurants, dishes, reviews and their photos.
+-- Foodalise core schema: people, restaurants, dishes, reviews and their photos.
 
 create extension if not exists pg_trgm;
 
