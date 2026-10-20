@@ -58,7 +58,7 @@ export default function Profile() {
             const p = firstPhoto(r);
             return (
               <Link key={r.id} href={{ pathname: '/dish/[id]', params: { id: r.dishes?.id ?? '' } }} asChild>
-                <Pressable style={[styles.cell, { backgroundColor: t.bg }]}>
+                <Pressable style={StyleSheet.flatten([styles.cell, { backgroundColor: t.bg }])}>
                   {p ? <Image source={{ uri: photoUrl(p) }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
                   <Text style={styles.badge}>{formatScore(r.rating)}</Text>
                 </Pressable>
