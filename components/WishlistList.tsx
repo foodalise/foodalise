@@ -1,10 +1,34 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import type { GalleryPhoto } from '@/components/PhotoGallery';
+import { PhotoStrip } from '@/components/PhotoStrip';
 import { Empty, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
+import { restaurantPhotos } from '@/lib/photos';
 import { loadWishlist, type WishPlace } from '@/lib/wishlist';
+
+const STRIP_PHOTOS = 9;
+
+// Food photos from a restaurant on your list: the dishes you picked first, then its best photos.
+function PlacePhotos({ place }: { place: WishPlace }) {
+  const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
+  const picked = useMemo(() => new Set(place.dishes.map((d) => d.id)), [place.dishes]);
+  const id = place.restaurant.id;
+  useEffect(() => {
+    let live = true;
+    restaurantPhotos(id, 80).then((all) => {
+      if (!live) return;
+      const mine = all.filter((p) => p.dishId && picked.has(p.dishId));
+      const rest = all.filter((p) => !(p.dishId && picked.has(p.dishId)));
+      setPhotos([...mine, ...rest].slice(0, STRIP_PHOTOS));
+    });
+    return () => { live = false; };
+  }, [id, picked]);
+  if (!photos.length) return null;
+  return <View style={{ paddingBottom: 10 }}><PhotoStrip photos={photos} highlight={picked} /></View>;
+}
 
 // Your "Want to try" list, grouped by restaurant: where to go, and what to order there.
 export function WishlistList() {
@@ -18,7 +42,7 @@ export function WishlistList() {
   }
   return (
     <View style={{ gap: 10 }}>
-      {places.map(({ restaurant: r, dishes }) => (
+      {places.map((place) => { const { restaurant: r, dishes } = place; return (
         <View key={r.id} style={[styles.card, { borderColor: t.line }]}>
           <Pressable onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: r.id } })} style={styles.head}>
             <Text style={{ color: t.ink, fontWeight: '800', fontSize: 16, flex: 1 }}>
@@ -27,6 +51,7 @@ export function WishlistList() {
             </Text>
             <Text style={{ color: t.muted, fontSize: 16 }}>›</Text>
           </Pressable>
+          <PlacePhotos place={place} />
           {dishes.length ? dishes.map((d) => (
             <Pressable key={d.id} onPress={() => router.push({ pathname: '/dish/[id]', params: { id: d.id } })}
               style={[styles.row, { borderTopColor: t.line }]}>
@@ -40,7 +65,7 @@ export function WishlistList() {
             </Pressable>
           )}
         </View>
-      ))}
+      ); })}
     </View>
   );
 }
