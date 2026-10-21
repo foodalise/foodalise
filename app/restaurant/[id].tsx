@@ -13,8 +13,20 @@ import type { Restaurant } from '@/lib/types';
 
 type DishRow = { id: string; name: string; section: string | null; price_pence: number | null; review_count: number; avg_rating: number | null; on_menu: boolean };
 
-// How old a menu can get before it's read again: chains monthly, website menus every two months.
-const REFRESH_DAYS = { chain: 30, website: 60 };
+// Website menus are re-read in the background once they're this old.
+const WEBSITE_MENU_DAYS = 60;
+
+// What "Refresh menu" tells the diner, by how it went.
+const REFRESH_RESULT: Record<string, string> = {
+  done: 'The menu is up to date.',
+  too_soon: 'This menu was refreshed in the last month. Try again later, or tell us what looks wrong.',
+  already_refreshed: "You've already refreshed this menu. Tell us what looks wrong instead and we'll check it.",
+  no_website: "We don't know where their menu is online. Tell us what looks wrong and we'll check it.",
+  no_menu: "We couldn't read a newer menu from their website, so we've kept this one.",
+  unreadable: "Their website wouldn't let us in, so we've kept this menu.",
+  limit: "You've refreshed lots of menus today. Try again tomorrow.",
+  error: 'Something went wrong refreshing the menu. Try again later.',
+};
 type PhotoRow = {
   id: string; created_at: string; like_count: number; comment_count: number;
   dishes: { name: string } | null; review_photos: { storage_path: string; position: number }[];
@@ -91,10 +103,9 @@ export default function RestaurantScreen() {
     return () => { live = false; };
   }, [needsMenu, id, loadRestaurant, loadDishes]);
 
-  // A chain or website menu that's due a refresh is re-read quietly in the background.
+  // A website menu that's two months old is re-read quietly in the background.
   const age = restaurant?.menu_checked_at ? (Date.now() - new Date(restaurant.menu_checked_at).getTime()) / 864e5 : Infinity;
-  const due = !!restaurant && !needsMenu && (
-    (!!restaurant.chain_slug && age > REFRESH_DAYS.chain) || (restaurant.menu_source === 'website' && age > REFRESH_DAYS.website));
+  const due = !!restaurant && !needsMenu && !restaurant.chain_slug && restaurant.menu_source === 'website' && age > WEBSITE_MENU_DAYS;
   useEffect(() => {
     if (!due) return;
     let live = true;
@@ -109,6 +120,26 @@ export default function RestaurantScreen() {
     });
     return () => { live = false; };
   }, [due, id, loadRestaurant, loadDishes]);
+
+  // The ⋯ button at the top right.
+  function openMenuOptions() {
+    Alert.alert(restaurant?.name ?? 'Menu', undefined, [
+      { text: 'Refresh menu', onPress: refreshMenu },
+      { text: 'Something wrong with this menu?', onPress: flagMenu },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  async function refreshMenu() {
+    setChecking(true);
+    const { status, added } = await fetchWebsiteMenu(id, undefined, true);
+    setChecking(false);
+    if (status === 'done') {
+      loadRestaurant();
+      loadDishes();
+    }
+    Alert.alert(status === 'done' && added > 0 ? `Menu refreshed: ${added} new ${added === 1 ? 'dish' : 'dishes'}.` : REFRESH_RESULT[status] ?? REFRESH_RESULT.error);
+  }
 
   function flagMenu() {
     Alert.alert("What's wrong with the menu?", "We'll check it and update it.", [
@@ -153,7 +184,14 @@ export default function RestaurantScreen() {
 
   return (
     <ScrollView style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 14 }}>
-      <Stack.Screen options={{ title: restaurant?.name ?? '' }} />
+      <Stack.Screen options={{
+        title: restaurant?.name ?? '',
+        headerRight: () => (
+          <Pressable accessibilityRole="button" accessibilityLabel="Menu options" onPress={openMenuOptions} hitSlop={12}>
+            <Text style={{ color: t.ink, fontSize: 22, fontWeight: '800' }}>⋯</Text>
+          </Pressable>
+        ),
+      }} />
       {restaurant ? (
         <View style={{ gap: 8 }}>
           <Text style={[styles.title, { color: t.ink }]}>{restaurant.name}</Text>
@@ -223,13 +261,12 @@ export default function RestaurantScreen() {
           ))}
         </View>
       ))}
-      {list.length ? (
-        <View style={{ gap: 6, marginTop: 8 }}>
+      {list.length && (checking || restaurant?.menu_checked_at) ? (
+        <View style={{ marginTop: 8 }}>
           <Text style={{ color: t.muted, fontSize: 12 }}>
             {checking ? 'Checking for menu updates…'
               : restaurant?.menu_checked_at ? `Menu updated ${new Date(restaurant.menu_checked_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}` : null}
           </Text>
-          <Button variant="ghost" title="Something wrong with this menu?" onPress={flagMenu} />
         </View>
       ) : null}
       <Text style={{ color: t.muted, fontSize: 11, marginTop: 8 }}>

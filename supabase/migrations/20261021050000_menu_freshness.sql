@@ -1,14 +1,15 @@
--- Keeps menus up to date. Chains' full menus are read from their websites once a
--- month and copied to every branch; independents' website menus are re-read every
--- two months. Dishes that drop off a menu are hidden (on_menu = false), never
--- deleted, so their reviews stay. Diners can flag a menu that looks wrong.
+-- Keeps menus up to date. Website menus are re-read every two months. Diners can tap
+-- "Refresh menu" (once each per restaurant; each restaurant at most once a month):
+-- for a chain branch that reads the chain's full menu page and updates every branch.
+-- Dishes that drop off a menu are hidden (on_menu = false), never deleted, so their
+-- reviews stay. Diners can also flag a menu that looks wrong.
 
 alter table public.dishes add column on_menu boolean not null default true;
 alter table public.restaurants add column menu_checked_at timestamptz;
 
 -- Where each chain's menu lives. Change a URL with:
 --   update chain_menu_sources set menu_url = 'https://…', read_at = null where chain_slug = 'nandos';
--- (read_at = null makes it re-read the next time someone opens one of its branches.)
+-- (read_at = null lets the next "Refresh menu" on one of its branches read it straight away.)
 create table public.chain_menu_sources (
   chain_slug text primary key,
   menu_url text not null,
@@ -140,3 +141,14 @@ from public.menu_reports m
 join public.profiles p on p.id = m.reporter_id
 join public.restaurants r on r.id = m.restaurant_id
 order by m.created_at desc;
+
+-- Who has used their one "Refresh menu" on which restaurant. Written by the menu reader.
+create table public.menu_refreshes (
+  user_id uuid not null references public.profiles on delete cascade,
+  restaurant_id uuid not null references public.restaurants on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, restaurant_id)
+);
+alter table public.menu_refreshes enable row level security;
+create policy "see your own refreshes" on public.menu_refreshes for select to authenticated
+  using (user_id = (select auth.uid()));

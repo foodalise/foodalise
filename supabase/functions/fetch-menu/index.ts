@@ -1,15 +1,16 @@
 // Finds a restaurant's own website, reads the menu on it with Claude, and adds the
 // dishes to the restaurant in Foodalise. The app calls this when someone opens a
-// restaurant that has no menu, or whose menu is due a refresh:
-// - Chains: the chain's menu page (chain_menu_sources) is read at most once a month
-//   and copied to every branch, so one read updates them all.
-// - Independents: a website menu is re-read every two months.
+// restaurant that has no menu or whose website menu is two months old, and when a
+// diner taps "Refresh menu" (once each per restaurant, and each restaurant at most
+// once a month). Refreshing a chain branch reads the chain's menu page
+// (chain_menu_sources) and updates every branch at once.
 // Dishes that have dropped off a menu are hidden (on_menu = false), never deleted.
 // A re-read that finds far fewer dishes than before is ignored, in case the site was
 // half-loaded.
 //
-//   POST { restaurantId: string, website?: string } -> { status: string, added: number }
+//   POST { restaurantId: string, website?: string, refresh?: boolean } -> { status: string, added: number }
 //   website: the restaurant's site, typed in by a diner when we couldn't find it.
+//   refresh: a diner tapped "Refresh menu". Statuses only it returns: too_soon, already_refreshed.
 //
 // Websites come from OpenStreetMap (free), then (only if SEARCH_MONTHLY_CAP > 0) a web search by Claude (about 1p
 // each, capped per month). If GOOGLE_PLACES_API_KEY is set, Google Places is tried
@@ -35,7 +36,7 @@ const MAX_TEXT_CHARS = 80_000;
 const MAX_PDF_BYTES = 15 * 1024 * 1024;
 const MAX_PDF_CHARS_TOTAL = 24_000_000;
 const MAX_PAGES = 5; // homepage plus up to four menu pages or PDFs
-const CHAIN_REFRESH_DAYS = 30;
+const REFRESH_EVERY_DAYS = 30; // any restaurant's menu, refreshed by diners at most this often
 const CHAIN_RETRY_DAYS = 3;
 const KEEP_IF_FEWER_THAN = 0.5; // a re-read must find at least half as many dishes as before
 
@@ -371,18 +372,23 @@ function cleanDishes(dishes: Dish[]): Dish[] {
   return out;
 }
 
-// Re-reads a chain's menu if it's due, and updates every branch. One read a month per chain.
-async function refreshChain(admin: SupabaseClient<any>, slug: string) {
-  const due = new Date(Date.now() - CHAIN_REFRESH_DAYS * 864e5).toISOString();
-  // Claim the chain so two people opening branches at once don't both read it.
+// Re-reads a chain's menu and updates every branch, at most once a month per chain.
+async function refreshChain(admin: SupabaseClient<any>, slug: string, claimRefresh: () => Promise<Response | null>) {
+  const due = new Date(Date.now() - REFRESH_EVERY_DAYS * 864e5).toISOString();
+  const { data: source } = await admin.from('chain_menu_sources').select('read_at').eq('chain_slug', slug).maybeSingle();
+  if (!source) return json({ status: 'no_website', added: 0 });
+  if (source.read_at && source.read_at > due) return json({ status: 'too_soon', added: 0 });
+  const used = await claimRefresh();
+  if (used) return used;
+  // Claim the chain so two people refreshing branches at once don't both read it.
   const { data: claimed } = await admin.from('chain_menu_sources')
     .update({ status: 'running', read_at: new Date().toISOString() })
     .eq('chain_slug', slug).or(`read_at.is.null,read_at.lt.${due}`).select('menu_url');
-  if (!claimed?.length) return json({ status: 'fresh', added: 0 });
+  if (!claimed?.length) return json({ status: 'too_soon', added: 0 });
 
   const finish = async (status: string, added = 0, found: number | null = null) => {
     // A failed read is tried again after a few days rather than a month.
-    const readAt = status === 'done' ? new Date() : new Date(Date.now() - (CHAIN_REFRESH_DAYS - CHAIN_RETRY_DAYS) * 864e5);
+    const readAt = status === 'done' ? new Date() : new Date(Date.now() - (REFRESH_EVERY_DAYS - CHAIN_RETRY_DAYS) * 864e5);
     await admin.from('chain_menu_sources').update({ status, dishes_found: found, read_at: readAt.toISOString() }).eq('chain_slug', slug);
     return json({ status, added });
   };
@@ -408,21 +414,40 @@ Deno.serve(async (req) => {
   const { data: { user } } = await admin.auth.getUser(token);
   if (!user) return json({ error: 'Please sign in again.' }, 401);
 
-  const { restaurantId, website: typed } = await req.json().catch(() => ({}));
+  const { restaurantId, website: typed, refresh: wantsRefresh } = await req.json().catch(() => ({}));
+  const refresh = wantsRefresh === true;
   if (typeof restaurantId !== 'string') return json({ error: 'Missing restaurant.' }, 400);
   const given = cleanWebsite(typed);
   if (typed && !given) return json({ status: 'bad_website', added: 0 });
 
   const { data: r } = await admin.from('restaurants')
-    .select('id, name, address, postcode, latitude, longitude, website, menu_source, chain_slug').eq('id', restaurantId).single();
+    .select('id, name, address, postcode, latitude, longitude, website, menu_source, chain_slug, menu_checked_at').eq('id', restaurantId).single();
   if (!r) return json({ error: 'Restaurant not found.' }, 404);
 
-  // A chain branch gets the chain's menu, unless a diner typed in a website for it.
-  if (r.chain_slug && !given) return await refreshChain(admin, r.chain_slug);
+  // Each diner gets one "Refresh menu" per restaurant. Only used up once a read actually starts.
+  const claimRefresh = async () => {
+    if (!refresh) return null;
+    const { error } = await admin.from('menu_refreshes').insert({ user_id: user.id, restaurant_id: r.id });
+    return error ? json({ status: 'already_refreshed', added: 0 }) : null;
+  };
 
-  // Each restaurant is tried again only after a wait, whoever opens it.
+  // A chain branch gets the chain's menu, unless a diner typed in a website for it.
+  // It's only read when a diner asks for a refresh, or the branch has no menu at all.
+  if (r.chain_slug && !given) {
+    if (!refresh && r.menu_source !== 'none') return json({ status: 'done', added: 0 });
+    return await refreshChain(admin, r.chain_slug, claimRefresh);
+  }
+
   const { data: last } = await admin.from('menu_fetches').select('status, attempted_at').eq('restaurant_id', r.id).maybeSingle();
-  if (last && !given && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {
+  if (refresh) {
+    // Each restaurant's menu can be refreshed at most once a month.
+    const lastRead = r.menu_checked_at ?? (last?.status === 'done' ? last.attempted_at : null);
+    if (lastRead && Date.now() - new Date(lastRead).getTime() < REFRESH_EVERY_DAYS * 864e5) return json({ status: 'too_soon', added: 0 });
+    if (!r.website) return json({ status: 'no_website', added: 0 });
+    const used = await claimRefresh();
+    if (used) return used;
+  } else if (last && !given && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {
+    // Each restaurant is tried again only after a wait, whoever opens it.
     return json({ status: last.status, added: 0 });
   }
   const since = new Date(Date.now() - 864e5).toISOString();
