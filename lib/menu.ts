@@ -30,8 +30,19 @@ export async function snapMenu(restaurantId: string, fromCamera: boolean): Promi
 // due, so this is cheap to call whenever a restaurant is opened. Never throws.
 // Pass website when a diner typed it in because we couldn't find it ourselves, and
 // refresh when they tapped "Refresh menu".
+// A website read runs in the background and takes a minute or two, so while the
+// function says "running" this asks again every few seconds, for up to three minutes.
 export async function fetchWebsiteMenu(restaurantId: string, website?: string, refresh = false): Promise<{ status: string; added: number }> {
-  const { data, error } = await supabase.functions.invoke('fetch-menu', { body: { restaurantId, website, refresh } });
+  let result = await askFetchMenu({ restaurantId, website, refresh });
+  for (let i = 0; i < 36 && result.status === 'running'; i++) {
+    await new Promise((done) => setTimeout(done, 5000));
+    result = await askFetchMenu({ restaurantId });
+  }
+  return result.status === 'running' ? { status: 'error', added: 0 } : result;
+}
+
+async function askFetchMenu(body: { restaurantId: string; website?: string; refresh?: boolean }) {
+  const { data, error } = await supabase.functions.invoke('fetch-menu', { body });
   if (error || !data) return { status: 'error', added: 0 };
   return data as { status: string; added: number };
 }

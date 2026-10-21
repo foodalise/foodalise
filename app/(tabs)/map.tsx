@@ -1,7 +1,7 @@
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { RestaurantMap, type RestaurantMapHandle } from '@/components/RestaurantMap';
@@ -25,13 +25,16 @@ export default function MapScreen() {
     const { granted } = await Location.requestForegroundPermissionsAsync();
     setLocationOff(!granted);
     if (!granted) return;
-    const pos = (await Location.getLastKnownPositionAsync()) ?? (await Location.getCurrentPositionAsync());
+    // A recent last-known position is instant; otherwise ask the phone where it is now.
+    const pos = (await Location.getLastKnownPositionAsync({ maxAge: 2 * 60_000 }))
+      ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
     const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
     setMe(coords);
     map.current?.moveTo({ ...coords, latitudeDelta: 0.02, longitudeDelta: 0.02 });
   }, []);
 
-  useEffect(() => { locate().catch(() => setLocationOff(true)); }, [locate]);
+  // Every time the Map tab is opened, centre it on where you are.
+  useFocusEffect(useCallback(() => { locate().catch(() => setLocationOff(true)); }, [locate]));
 
   const load = useCallback(async (region: Region) => {
     const id = ++request.current;

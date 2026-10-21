@@ -207,15 +207,18 @@ export function ProfileView({ userId }: { userId: string }) {
             </View>
           ) : null}
         </Pressable>
-        <View style={{ flex: 1, gap: 4 }}>
-          <Text style={[styles.name, { color: t.ink }]}>@{username ?? '…'}</Text>
+        <Text style={[styles.name, { color: t.ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+          @{username ?? '…'}
+        </Text>
+        {/* The bio sits top right, beside the username. */}
+        <View style={styles.bio}>
           {editingBio !== null ? null : bio ? (
             <Pressable disabled={!isMe} onPress={() => setEditingBio(bio)}>
-              <Text style={{ color: t.ink, lineHeight: 19 }}>{bio}</Text>
+              <Text style={{ color: t.ink, fontSize: 13, lineHeight: 18 }} numberOfLines={6}>{bio}</Text>
             </Pressable>
           ) : isMe ? (
-            <Pressable onPress={() => setEditingBio('')}>
-              <Text style={{ color: t.muted }}>+ Add a bio</Text>
+            <Pressable onPress={() => setEditingBio('')} style={[styles.bioEmpty, { borderColor: t.line }]}>
+              <Text style={{ color: t.muted, fontSize: 13 }}>+ Add a bio</Text>
             </Pressable>
           ) : null}
         </View>
@@ -306,9 +309,11 @@ export function ProfileView({ userId }: { userId: string }) {
 }
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bio: { flex: 1, minWidth: 110 },
+  bioEmpty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
   camera: { position: 'absolute', right: -2, bottom: -2, width: 26, height: 26, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  name: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  name: { flexShrink: 1, maxWidth: '45%', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
   stats: { flexDirection: 'row', gap: 8 },
   stat: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 10, alignItems: 'center' },
   statNum: { fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },

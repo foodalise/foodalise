@@ -18,6 +18,11 @@
 // Sites that build their menu with JavaScript after loading (Square Online, Wix and
 // other ordering sites) arrive empty, so if the plain read finds no dishes, the page
 // is read again through Jina Reader (free), which loads it in a real browser first.
+// Menu PDFs are handed to Claude as links, so Claude fetches them itself; if that
+// fails they're downloaded here and sent instead.
+// Reading a menu can take a minute or two, longer than a phone waits for an answer,
+// so the read runs in the background: the app gets status "running" straight away
+// and asks again every few seconds until the status changes.
 // Secrets: ANTHROPIC_API_KEY (required), GOOGLE_PLACES_API_KEY and JINA_API_KEY (optional).
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 import Anthropic from 'npm:@anthropic-ai/sdk';
@@ -69,7 +74,9 @@ Only include things a customer can order. Ignore opening times, events, allergy 
 If the pages don't contain a menu, return an empty list.`;
 
 type Dish = { section: string | null; name: string; price_pence: number | null };
-type Page = { url: string; text?: string; pdf?: string; html?: string };
+type Page = { url: string; text?: string; pdf?: string; pdfUrl?: string; html?: string };
+
+declare const EdgeRuntime: { waitUntil(work: Promise<unknown>): void };
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -208,6 +215,7 @@ function htmlToText(html: string) {
 async function getPage(url: string): Promise<Page | null> {
   const u = new URL(url);
   if (!(await robotsAllow(u))) return null;
+  if (u.pathname.toLowerCase().endsWith('.pdf')) return { url, pdfUrl: url };
   const res = await fetchWithTimeout(url);
   if (!res.ok) return null;
   const type = res.headers.get('content-type') ?? '';
@@ -281,7 +289,29 @@ function renderedPdfLinks(page: Page) {
   return found;
 }
 
+// A PDF downloaded here, for when Claude couldn't fetch it from its link.
+async function downloadPdf(url: string): Promise<Page | null> {
+  const res = await fetchWithTimeout(url, {}, 20_000).catch(() => null);
+  if (!res?.ok) return null;
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes.length > MAX_PDF_BYTES) return null;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { url, pdf: btoa(bin) };
+}
+
 async function readMenu(pages: Page[]): Promise<Dish[]> {
+  try {
+    return await askClaude(pages);
+  } catch (e) {
+    if (!pages.some((p) => p.pdfUrl)) throw e;
+    console.warn('reading PDFs by link failed, downloading them instead', e);
+    const local = await Promise.all(pages.map((p) => p.pdfUrl ? downloadPdf(p.pdfUrl) : p));
+    return await askClaude(local.filter((p): p is Page => !!p));
+  }
+}
+
+async function askClaude(pages: Page[]): Promise<Dish[]> {
   const content: Anthropic.ContentBlockParam[] = [];
   let chars = 0;
   let pdfChars = 0;
@@ -289,7 +319,8 @@ async function readMenu(pages: Page[]): Promise<Dish[]> {
     // Keeps the request under the API's 32MB size limit.
     if (p.pdf && pdfChars + p.pdf.length > MAX_PDF_CHARS_TOTAL) continue;
     if (p.pdf) pdfChars += p.pdf.length;
-    if (p.pdf) content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.pdf } });
+    if (p.pdfUrl) content.push({ type: 'document', source: { type: 'url', url: p.pdfUrl } });
+    else if (p.pdf) content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.pdf } });
     else if (p.text && chars < MAX_TEXT_CHARS) {
       const text = p.text.slice(0, MAX_TEXT_CHARS - chars);
       chars += text.length;
@@ -438,7 +469,7 @@ Deno.serve(async (req) => {
     return await refreshChain(admin, r.chain_slug, claimRefresh);
   }
 
-  const { data: last } = await admin.from('menu_fetches').select('status, attempted_at').eq('restaurant_id', r.id).maybeSingle();
+  const { data: last } = await admin.from('menu_fetches').select('status, attempted_at, dishes_added').eq('restaurant_id', r.id).maybeSingle();
   if (refresh) {
     // Each restaurant's menu can be refreshed at most once a month.
     const lastRead = r.menu_checked_at ?? (last?.status === 'done' ? last.attempted_at : null);
@@ -447,8 +478,9 @@ Deno.serve(async (req) => {
     const used = await claimRefresh();
     if (used) return used;
   } else if (last && !given && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {
-    // Each restaurant is tried again only after a wait, whoever opens it.
-    return json({ status: last.status, added: 0 });
+    // Each restaurant is tried again only after a wait, whoever opens it. This is also
+    // how the app finds out how a background read went.
+    return json({ status: last.status, added: last.status === 'done' ? last.dishes_added ?? 0 : 0 });
   }
   const since = new Date(Date.now() - 864e5).toISOString();
   const { count } = await admin.from('menu_fetches').select('*', { count: 'exact', head: true })
@@ -458,9 +490,20 @@ Deno.serve(async (req) => {
   await admin.from('menu_fetches').upsert({ restaurant_id: r.id, requested_by: user.id, status: 'running', attempted_at: new Date().toISOString(), dishes_added: 0 });
   const finish = async (status: string, added = 0, website: string | null = null) => {
     await admin.from('menu_fetches').update({ status, dishes_added: added, website }).eq('restaurant_id', r.id);
-    return json({ status, added });
   };
 
+  EdgeRuntime.waitUntil(readRestaurant(admin, r, given, finish));
+  return json({ status: 'running', added: 0 });
+});
+
+type RestaurantRow = {
+  id: string; name: string; address: string | null; postcode: string | null; latitude: number | null; longitude: number | null;
+  website: string | null; menu_source: string;
+};
+
+// Finds the restaurant's website, reads its menu and brings its dishes up to date.
+async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, given: string | null,
+  finish: (status: string, added?: number, website?: string | null) => Promise<void>) {
   try {
     let website: string | null = given ?? r.website;
     if (!website && r.latitude != null && r.longitude != null) website = await websiteFromOsm(r.name, r.latitude, r.longitude);
@@ -510,4 +553,4 @@ Deno.serve(async (req) => {
     console.error('fetch-menu failed', r.id, e);
     return await finish('error');
   }
-});
+}
