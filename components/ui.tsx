@@ -1,11 +1,12 @@
 import { Image } from 'expo-image';
-import { Link, router } from 'expo-router';
-import { useState, type ReactNode } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { formatScore, scoreColor, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { blockUser, reportReview, REPORT_REASONS } from '@/lib/safety';
+import { setLiked } from '@/lib/social';
 import { photoUrl } from '@/lib/supabase';
 import { firstPhoto, type FeedReview } from '@/lib/types';
 
@@ -94,10 +95,15 @@ export function Empty({ title, body }: { title: string; body?: string }) {
   );
 }
 
-export function ReviewCard({ review }: { review: FeedReview }) {
+// onComment replaces opening the comments page (used on that page itself).
+export function ReviewCard({ review, onComment }: { review: FeedReview; onComment?: () => void }) {
   const t = useTheme();
   const me = useAuth().session?.user.id;
   const [hidden, setHidden] = useState(false);
+  const [liked, setLikedState] = useState(review.liked_by_me);
+  const [likes, setLikes] = useState(review.like_count);
+  // Fresh counts when the list reloads.
+  useEffect(() => { setLikedState(review.liked_by_me); setLikes(review.like_count); }, [review.liked_by_me, review.like_count]);
   const photo = firstPhoto(review);
   const dish = review.dishes;
   const author = review.profiles;
@@ -125,6 +131,21 @@ export function ReviewCard({ review }: { review: FeedReview }) {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Block', style: 'destructive', onPress: () => act(() => blockUser(me!, author!.id), `@${author!.username} is blocked.`) },
     ]);
+  }
+
+  // Shows the like straight away, and puts it back if saving fails.
+  async function toggleLike() {
+    if (!me) return;
+    const next = !liked;
+    setLikedState(next);
+    setLikes((n) => n + (next ? 1 : -1));
+    try {
+      await setLiked(me, review.id, next);
+    } catch (e) {
+      setLikedState(!next);
+      setLikes((n) => n + (next ? -1 : 1));
+      Alert.alert((e as Error).message);
+    }
   }
 
   async function act(run: () => Promise<void>, done: string) {
@@ -157,12 +178,16 @@ export function ReviewCard({ review }: { review: FeedReview }) {
       </View>
       {photo ? <Image source={{ uri: photoUrl(photo) }} style={[styles.photo, { backgroundColor: t.bg }]} contentFit="cover" /> : null}
       {dish ? (
-        <Link href={{ pathname: '/dish/[id]', params: { id: dish.id } }} asChild>
-          <Pressable>
+        <View>
+          <Pressable onPress={() => router.push({ pathname: '/dish/[id]', params: { id: dish.id } })}>
             <Text style={[styles.dish, { color: t.ink }]}>{dish.name}</Text>
-            <Text style={{ color: t.muted, fontSize: 13 }}>at {dish.restaurants?.name}</Text>
           </Pressable>
-        </Link>
+          {dish.restaurants ? (
+            <Pressable onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: dish.restaurants!.id } })} hitSlop={6}>
+              <Text style={{ color: t.muted, fontSize: 13 }}>at <Text style={{ color: t.ink, fontWeight: '600' }}>{dish.restaurants.name}</Text></Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
       {review.taste != null && review.presentation != null && review.value != null ? (
         <Text style={{ color: t.muted, fontSize: 13 }}>
@@ -170,6 +195,19 @@ export function ReviewCard({ review }: { review: FeedReview }) {
         </Text>
       ) : null}
       {review.body ? <Text style={{ color: t.ink, lineHeight: 21 }}>{review.body}</Text> : null}
+      <View style={styles.actions}>
+        <Pressable accessibilityRole="button" accessibilityLabel={liked ? 'Unlike' : 'Like'} onPress={toggleLike} hitSlop={8} style={styles.action}>
+          <Text style={{ fontSize: 20, color: liked ? t.lo : t.muted }}>{liked ? '♥' : '♡'}</Text>
+          {likes > 0 ? <Text style={{ color: t.muted, fontWeight: '600' }}>{likes}</Text> : null}
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Comments" hitSlop={8} style={styles.action}
+          onPress={onComment ?? (() => router.push({ pathname: '/comments/[id]', params: { id: review.id } }))}>
+          <Text style={{ fontSize: 17, color: t.muted }}>💬</Text>
+          <Text style={{ color: t.muted, fontWeight: '600' }}>
+            {review.comment_count > 0 ? review.comment_count : 'Comment'}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -191,6 +229,8 @@ const styles = StyleSheet.create({
   photo: { width: '100%', aspectRatio: 1, borderRadius: 12 },
   dish: { fontWeight: '700', fontSize: 16 },
   more: { paddingHorizontal: 4 },
+  actions: { flexDirection: 'row', gap: 22, paddingTop: 2 },
+  action: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   segments: { flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },
   segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: 'transparent' },
 });

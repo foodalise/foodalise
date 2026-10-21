@@ -45,6 +45,7 @@ function RootLayoutNav() {
           <Stack.Screen name="restaurant/[id]" options={{ title: '' }} />
           <Stack.Screen name="dish/[id]" options={{ title: '' }} />
           <Stack.Screen name="user/[id]" options={{ title: '' }} />
+          <Stack.Screen name="comments/[id]" options={{ title: 'Comments' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
