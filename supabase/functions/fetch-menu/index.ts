@@ -87,7 +87,7 @@ const CUISINE_SCHEMA = {
 
 const PROMPT = `Above are pages from a restaurant's own website. List every dish or drink on its current menu.
 - name: the dish name as printed, in normal capitalisation (e.g. "Chicken Katsu Curry", not "CHICKEN KATSU CURRY"). Leave out descriptions and ingredients.
-- section: the menu heading it sits under (e.g. "Starters", "Mains"), or null if there is none.
+- section: the menu heading it sits under (e.g. "Starters", "Mains"), or null if there is none. The text may start part-way through a page; give dishes before the first heading the heading they most likely sit under.
 - price_pence: the price in pence (£12.50 -> 1250), or null if no price is shown. If there are several sizes, use the smallest.
 - diets: "vegetarian", "vegan" or "gluten_free" only where the menu marks the dish that way (e.g. V, VG, GF). Don't guess.
 - cuisine: the kind of food the restaurant serves overall, or "Other" if none fits.
@@ -324,7 +324,38 @@ async function downloadPdf(url: string): Promise<Page | null> {
   return { url, pdf: btoa(bin) };
 }
 
+// Long menus are read in pieces, at the same time: asked to list a 40-page-long menu in
+// one go, the model skips dishes (Nando's lost its chips and garlic bread that way).
+// PDFs are read together in one request; page text is cut into overlapping pieces.
+const CHUNK_CHARS = 12_000;
+const CHUNK_OVERLAP = 800;
+
+function textChunks(pages: Page[]): Page[] {
+  const all = pages.filter((p) => p.text && !p.pdf && !p.pdfUrl)
+    .map((p) => `Page: ${p.url}\n\n${p.text}`).join('\n\n').slice(0, MAX_TEXT_CHARS);
+  const chunks: Page[] = [];
+  for (let start = 0; start < all.length;) {
+    let end = Math.min(all.length, start + CHUNK_CHARS);
+    if (end < all.length) end = Math.max(all.lastIndexOf('\n', end), start + CHUNK_CHARS / 2);
+    chunks.push({ url: pages[0].url, text: all.slice(start, end) });
+    if (end >= all.length) break;
+    start = end - CHUNK_OVERLAP;
+  }
+  return chunks;
+}
+
 async function readMenu(pages: Page[]): Promise<Menu> {
+  const pdfs = pages.filter((p) => p.pdf || p.pdfUrl);
+  const groups = [...(pdfs.length ? [pdfs] : []), ...textChunks(pages).map((c) => [c])];
+  const menus = await Promise.all(groups.map(readGroup));
+  return {
+    dishes: menus.flatMap((m) => m.dishes),
+    cuisine: menus.find((m) => m.cuisine && m.cuisine !== 'Other')?.cuisine ?? menus.find((m) => m.cuisine)?.cuisine ?? null,
+    halal: menus.some((m) => m.halal),
+  };
+}
+
+async function readGroup(pages: Page[]): Promise<Menu> {
   try {
     return await askClaude(pages);
   } catch (e) {
@@ -428,19 +459,34 @@ async function readWebsite(website: string): Promise<{ reachable: boolean } & Me
   return { reachable: !!(home || first), ...menu, dishes: cleanDishes(menu.dishes) };
 }
 
-// Tidied names and prices, each dish once.
+// The same dish written differently: the same words, or (with at least two words) one
+// name's words all inside the other's. Mirrors same_dish() in the database.
+const FILLER = new Set(['the', 'and', 'with', 'of', 'a', 'our', 'peri', 'piri']);
+function dishWords(name: string) {
+  return [...new Set(name.toLowerCase().split(/[^a-z0-9/]+/).filter((w) => w && !FILLER.has(w)))];
+}
+function sameDish(a: string, b: string) {
+  const x = dishWords(a), y = dishWords(b);
+  const within = (p: string[], q: string[]) => p.every((w) => q.includes(w));
+  return (x.length === y.length && within(x, y)) || (Math.min(x.length, y.length) >= 2 && (within(x, y) || within(y, x)));
+}
+
+// Tidied names and prices, each dish once. A dish listed twice keeps the main menu's
+// entry over a children's menu or no heading (Nando's lists Chips for kids first).
+const KIDS = /kid|child|little|nandino|junior/i;
 function cleanDishes(dishes: Dish[]): Dish[] {
-  const seen = new Set<string>();
-  const out: Dish[] = [];
+  const byName = new Map<string, Dish>();
   for (const d of dishes) {
     const name = d.name?.trim().replace(/\s+/g, ' ') ?? '';
-    if (name.length < 2 || name.length > 120 || seen.has(name.toLowerCase())) continue;
-    seen.add(name.toLowerCase());
+    if (name.length < 2 || name.length > 120) continue;
     const price = Number.isInteger(d.price_pence) && d.price_pence! >= 0 ? d.price_pence : null;
     const diets = (d.diets ?? []).filter((x) => DISH_DIETS.includes(x));
-    out.push({ name, section: d.section?.trim() || null, price_pence: price, diets });
+    const dish = { name, section: d.section?.trim() || null, price_pence: price, diets };
+    const kept = byName.get(name.toLowerCase());
+    const worse = (x: Dish) => !x.section || KIDS.test(x.section);
+    if (!kept || (worse(kept) && !worse(dish))) byName.set(name.toLowerCase(), kept ? { ...dish, name: kept.name } : dish);
   }
-  return out;
+  return [...byName.values()];
 }
 
 // Re-reads a chain's menu and updates every branch, at most once a month per chain.
@@ -570,7 +616,7 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     const { reachable, dishes, cuisine, halal } = await readWebsite(website);
     if (!reachable) return await finish('unreadable', 0, website);
 
-    const { data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu, diets').eq('restaurant_id', r.id);
+    let { data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu, diets, review_count').eq('restaurant_id', r.id);
     const fromSite = (existing ?? []).filter((d) => d.source === 'website');
     // Too few dishes compared with last time: probably a half-loaded page, so keep the menu we have.
     if (!dishes.length || dishes.length < fromSite.filter((d) => d.on_menu).length * KEEP_IF_FEWER_THAN) {
@@ -580,7 +626,23 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     // Dishes already listed: show the ones still on the menu (with today's section and
     // price), hide the website ones that have gone. Diners' own additions are left alone.
     const byName = new Map(dishes.map((d) => [d.name.toLowerCase(), d]));
-    const gone = fromSite.filter((d) => d.on_menu && !byName.has(d.name.toLowerCase())).map((d) => d.id);
+    // A dish written a little differently now ("Chicken Wings (5)" / "5 Chicken Wings")
+    // takes the new name, so its reviews carry on; an unreviewed copy under that name goes.
+    let renamed = false;
+    for (const d of fromSite.filter((x) => !byName.has(x.name.toLowerCase())).sort((a, b) => b.review_count - a.review_count)) {
+      const match = dishes.find((n) => sameDish(n.name, d.name)
+        && !(existing ?? []).some((x) => x.id !== d.id && x.review_count > 0 && x.name.toLowerCase() === n.name.toLowerCase()));
+      if (!match) continue;
+      const copies = (existing ?? []).filter((x) => x.id !== d.id && x.name.toLowerCase() === match.name.toLowerCase()).map((x) => x.id);
+      if (copies.length) await admin.from('dishes').delete().in('id', copies);
+      const { error } = await admin.from('dishes').update({ name: match.name }).eq('id', d.id);
+      if (!error) renamed = true;
+    }
+    if (renamed) {
+      ({ data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu, diets, review_count').eq('restaurant_id', r.id));
+    }
+    // Gone from the menu: hidden, unless people have reviewed it.
+    const gone = (existing ?? []).filter((d) => d.source === 'website' && d.on_menu && d.review_count === 0 && !byName.has(d.name.toLowerCase())).map((d) => d.id);
     if (gone.length) await admin.from('dishes').update({ on_menu: false }).in('id', gone);
     for (const d of existing ?? []) {
       const now = byName.get(d.name.toLowerCase());
