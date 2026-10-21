@@ -41,6 +41,13 @@ export function Button({ title, onPress, variant = 'primary', disabled, busy }: 
   );
 }
 
+// e.g. "21/10/2026 · 17:05" in the phone's own time zone, 24-hour clock.
+function postedAt(iso: string) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${d.toLocaleDateString('en-GB')} · ${time}`;
+}
+
 export function Field(props: TextInputProps) {
   const t = useTheme();
   return (
@@ -139,7 +146,7 @@ export function ReviewCard({ review }: { review: FeedReview }) {
         <Pressable style={{ flex: 1 }} disabled={!review.profiles}
           onPress={() => review.profiles && router.push({ pathname: '/user/[id]', params: { id: review.profiles.id } })}>
           <Text style={{ color: t.ink, fontWeight: '700' }}>@{review.profiles?.username ?? 'someone'}</Text>
-          <Text style={{ color: t.muted, fontSize: 12 }}>{new Date(review.created_at).toLocaleDateString('en-GB')}</Text>
+          <Text style={{ color: t.muted, fontSize: 12 }}>{postedAt(review.created_at)}</Text>
         </Pressable>
         <ScorePill rating={review.rating} />
         {me && author && author.id !== me ? (
