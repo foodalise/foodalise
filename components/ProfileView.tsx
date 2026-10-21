@@ -10,6 +10,7 @@ import { WishlistList } from '@/components/WishlistList';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { changeAvatar, saveBio } from '@/lib/profile';
+import { compareTaste, myScores, type TasteMatch } from '@/lib/taste';
 import { deleteReview } from '@/lib/reviews';
 import { blockUser, deleteAccount, unblockUser } from '@/lib/safety';
 import { photoUrl, supabase } from '@/lib/supabase';
@@ -37,6 +38,7 @@ export function ProfileView({ userId }: { userId: string }) {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'items' | 'restaurants' | 'wishlist'>('items');
   const [loading, setLoading] = useState(true);
+  const [taste, setTaste] = useState<TasteMatch>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (quiet = false) => {
@@ -62,6 +64,7 @@ export function ProfileView({ userId }: { userId: string }) {
     setFollowing(followingCount.count ?? 0);
     setIFollow(!!mine.data);
     setIBlocked(!!blocked.data);
+    setTaste(me && !isMe ? compareTaste(await myScores(me), theirs.data ?? []) : null);
     setLoading(false);
   }, [userId, me, isMe]);
 
@@ -252,6 +255,25 @@ export function ProfileView({ userId }: { userId: string }) {
           </View>
         ))}
       </View>
+      {!isMe && me && !iBlocked && reviews.length ? (
+        <View style={[styles.taste, { borderColor: t.line }]}>
+          {taste ? (
+            <>
+              <Text style={[styles.tasteNum, { color: t.ink }]}>{taste.percent}%</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: t.ink, fontWeight: '700' }}>taste match</Text>
+                <Text style={{ color: t.muted, fontSize: 12 }}>
+                  {taste.by === 'dishes'
+                    ? `From ${taste.shared} ${taste.shared === 1 ? 'dish' : 'dishes'} you've both reviewed`
+                    : `From ${taste.shared} ${taste.shared === 1 ? 'restaurant' : 'restaurants'} you've both reviewed`}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <Text style={{ color: t.muted, flex: 1 }}>Review a dish they've had to see your taste match.</Text>
+          )}
+        </View>
+      ) : null}
       {!isMe && me && !iBlocked ? (
         <Button variant={iFollow ? 'ghost' : 'primary'} title={iFollow ? 'Following' : 'Follow'} onPress={toggleFollow} busy={busy} />
       ) : null}
@@ -312,6 +334,8 @@ export function ProfileView({ userId }: { userId: string }) {
 }
 
 const styles = StyleSheet.create({
+  taste: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, padding: 12 },
+  tasteNum: { fontSize: 28, fontWeight: '900', letterSpacing: -0.5 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   bio: { flex: 1, minWidth: 110 },
   bioEmpty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
