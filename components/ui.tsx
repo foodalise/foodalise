@@ -2,23 +2,90 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
-import { formatScore, scoreColor, useTheme } from '@/constants/theme';
+import { formatScore, scoreColor, tint, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { blockUser, reportReview, REPORT_REASONS } from '@/lib/safety';
 import { setLiked } from '@/lib/social';
 import { photoUrl } from '@/lib/supabase';
 import { firstPhoto, type FeedReview } from '@/lib/types';
+import { setWanted, wantedDishIds } from '@/lib/wishlist';
 
-export function ScorePill({ rating }: { rating: number | null | undefined }) {
+// A score in a softly tinted badge: green 8+, yellow 6+, red below.
+export function ScorePill({ rating, size = 'md' }: { rating: number | null | undefined; size?: 'sm' | 'md' | 'lg' }) {
   const t = useTheme();
   const color = scoreColor(t, rating);
+  const fontSize = size === 'sm' ? 12 : size === 'lg' ? 20 : 15;
   return (
-    <View style={[styles.pill, { borderColor: color }]}>
-      <Text style={[styles.pillNum, { color }]}>{formatScore(rating)}</Text>
-      <Text style={[styles.pillOf, { color }]}>/10</Text>
+    <View style={[styles.pill, { backgroundColor: tint(color, 0.18) }, size === 'sm' && styles.pillSm, size === 'lg' && styles.pillLg]}>
+      <Text style={[styles.pillNum, { color, fontSize }]}>{formatScore(rating)}</Text>
+    </View>
+  );
+}
+
+// The same badge for laying over a photo: dark glass behind the coloured score.
+export function PhotoScore({ rating, style }: { rating: number | null | undefined; style?: object }) {
+  const t = useTheme();
+  return (
+    <View style={[styles.photoScore, style]}>
+      <Text style={[styles.pillNum, { color: scoreColor(t, rating), fontSize: 12 }]}>{formatScore(rating)}</Text>
+    </View>
+  );
+}
+
+// Taste / Looks / Value as thin bars out of 10.
+export function ScoreBars({ taste, looks, value }: { taste: number; looks: number; value: number }) {
+  const t = useTheme();
+  return (
+    <View style={{ gap: 6 }}>
+      {([['Taste', taste], ['Looks', looks], ['Value', value]] as const).map(([label, n]) => (
+        <View key={label} style={styles.barRow} accessibilityLabel={`${label} ${formatScore(n)} out of 10`}>
+          <Text style={[styles.barLabel, { color: t.muted }]}>{label}</Text>
+          <View style={[styles.barTrack, { backgroundColor: t.line }]}>
+            <View style={[styles.barFill, { width: `${Math.max(0, Math.min(10, n)) * 10}%`, backgroundColor: t.accent }]} />
+          </View>
+          <Text style={[styles.barNum, { color: t.ink }]}>{formatScore(n)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// A row of pill buttons you can swipe sideways; the chosen ones are orange.
+export function Chips({ items, style }: {
+  items: { key: string; label: string; on: boolean; onPress: () => void }[]; style?: object;
+}) {
+  const t = useTheme();
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={style} contentContainerStyle={{ gap: 8 }}>
+      {items.map((c) => (
+        <Pressable key={c.key} accessibilityRole="button" accessibilityState={{ selected: c.on }} onPress={c.onPress}
+          style={[styles.chip, c.on ? { backgroundColor: t.accent, borderColor: t.accent } : { backgroundColor: t.card, borderColor: t.line }]}>
+          <Text style={{ color: c.on ? t.accentInk : t.muted, fontWeight: '600', fontSize: 14 }}>{c.label}</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+// Text tabs with an orange underline under the chosen one, e.g. Dishes | Places | Saved.
+export function UnderlineTabs<T extends string>({ options, value, onChange }: {
+  options: { value: T; label: string }[]; value: T; onChange: (v: T) => void;
+}) {
+  const t = useTheme();
+  return (
+    <View style={[styles.tabs, { borderBottomColor: t.line }]} accessibilityRole="tablist">
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <Pressable key={o.value} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(o.value)}
+            style={[styles.tab, { borderBottomColor: on ? t.accent : 'transparent' }]}>
+            <Text style={{ color: on ? t.ink : t.muted, fontWeight: '700', fontSize: 16 }}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -35,7 +102,7 @@ export function Button({ title, onPress, variant = 'primary', disabled, busy }: 
       disabled={disabled || busy}
       style={({ pressed }) => [
         styles.button,
-        primary ? { backgroundColor: t.accent } : { backgroundColor: t.surface, borderColor: t.line, borderWidth: 1 },
+        primary ? { backgroundColor: t.accent } : { backgroundColor: t.card, borderColor: t.line, borderWidth: 1 },
         { opacity: disabled ? 0.35 : pressed ? 0.8 : 1 },
       ]}>
       {busy ? <ActivityIndicator color={primary ? t.accentInk : t.ink} /> :
@@ -44,11 +111,14 @@ export function Button({ title, onPress, variant = 'primary', disabled, busy }: 
   );
 }
 
-// e.g. "21/10/2026 · 17:05" in the phone's own time zone, 24-hour clock.
-function postedAt(iso: string) {
-  const d = new Date(iso);
-  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${d.toLocaleDateString('en-GB')} · ${time}`;
+// How long ago, e.g. "5m", "2h", "3d"; older posts show the date, e.g. "21 Oct".
+export function timeAgo(iso: string) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  if (mins < 24 * 60) return `${Math.floor(mins / 60)}h`;
+  if (mins < 7 * 24 * 60) return `${Math.floor(mins / (24 * 60))}d`;
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 export function Field(props: TextInputProps) {
@@ -57,7 +127,7 @@ export function Field(props: TextInputProps) {
     <TextInput
       placeholderTextColor={t.muted}
       {...props}
-      style={[styles.field, { backgroundColor: t.bg, borderColor: t.line, color: t.ink }, props.style]}
+      style={[styles.field, { backgroundColor: t.card, borderColor: t.line, color: t.ink }, props.style]}
     />
   );
 }
@@ -68,12 +138,12 @@ export function Segmented<T extends string>({ options, value, onChange }: {
 }) {
   const t = useTheme();
   return (
-    <View style={[styles.segments, { backgroundColor: t.bg }]} accessibilityRole="tablist">
+    <View style={[styles.segments, { backgroundColor: t.card }]} accessibilityRole="tablist">
       {options.map((o) => {
         const on = o.value === value;
         return (
           <Pressable key={o.value} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(o.value)}
-            style={[styles.segment, on && { backgroundColor: t.surface, borderColor: t.line }]}>
+            style={[styles.segment, on && { backgroundColor: t.line, borderColor: t.line }]}>
             <Text style={{ color: on ? t.ink : t.muted, fontWeight: on ? '700' : '600' }}>{o.label}</Text>
           </Pressable>
         );
@@ -104,6 +174,9 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
   const [hidden, setHidden] = useState(false);
   const [liked, setLikedState] = useState(review.liked_by_me);
   const [likes, setLikes] = useState(review.like_count);
+  const [saved, setSaved] = useState(false);
+  const dishId = review.dishes?.id;
+  useEffect(() => { if (dishId) wantedDishIds().then((ids) => setSaved(ids.has(dishId))); }, [dishId]);
   // Fresh counts when the list reloads.
   useEffect(() => { setLikedState(review.liked_by_me); setLikes(review.like_count); }, [review.liked_by_me, review.like_count]);
   const photo = firstPhoto(review);
@@ -150,6 +223,19 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
     }
   }
 
+  // The bookmark adds the dish to your Want to try list.
+  async function toggleSaved() {
+    if (!me || !dishId) return;
+    const next = !saved;
+    setSaved(next);
+    try {
+      await setWanted(me, dishId, next);
+    } catch (e) {
+      setSaved(!next);
+      Alert.alert((e as Error).message);
+    }
+  }
+
   async function act(run: () => Promise<void>, done: string) {
     try {
       await run();
@@ -160,15 +246,25 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
     }
   }
 
+  const place = dish?.restaurants;
   return (
-    <View style={[styles.card, { borderBottomColor: t.line }]}>
+    <View style={[styles.card, { backgroundColor: t.card, borderColor: t.line }]}>
       <View style={styles.who}>
-        <Avatar username={review.profiles?.username} path={review.profiles?.avatar_path} size={32} />
-        <Pressable style={{ flex: 1 }} disabled={!review.profiles}
-          onPress={() => review.profiles && router.push({ pathname: '/user/[id]', params: { id: review.profiles.id } })}>
-          <Text style={{ color: t.ink, fontWeight: '700' }}>@{review.profiles?.username ?? 'someone'}</Text>
-          <Text style={{ color: t.muted, fontSize: 12 }}>{postedAt(review.created_at)}</Text>
-        </Pressable>
+        <Avatar username={review.profiles?.username} path={review.profiles?.avatar_path} size={36} />
+        <View style={{ flex: 1 }}>
+          <Pressable disabled={!review.profiles} hitSlop={4}
+            onPress={() => review.profiles && router.push({ pathname: '/user/[id]', params: { id: review.profiles.id } })}>
+            <Text style={{ color: t.ink, fontWeight: '700', fontSize: 15 }}>@{review.profiles?.username ?? 'someone'}</Text>
+          </Pressable>
+          <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>
+            {timeAgo(review.created_at)}
+            {place ? (
+              <Text onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: place.id } })}>
+                {' · '}{place.name}{place.cuisine ? <Text style={{ fontStyle: 'italic' }}>, {place.cuisine}</Text> : null}
+              </Text>
+            ) : null}
+          </Text>
+        </View>
         <ScorePill rating={review.rating} />
         {me && author && author.id !== me ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Report or block" onPress={openMenu} hitSlop={10} style={styles.more}>
@@ -178,43 +274,38 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
       </View>
       {photo ? <Image source={{ uri: photoUrl(photo) }} style={[styles.photo, { backgroundColor: t.bg }]} contentFit="cover" /> : null}
       {dish ? (
-        <View>
-          <Pressable onPress={() => router.push({ pathname: '/dish/[id]', params: { id: dish.id } })}>
-            <Text style={[styles.dish, { color: t.ink }]}>{dish.name}</Text>
-          </Pressable>
-          {dish.restaurants ? (
-            <Pressable onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: dish.restaurants!.id } })} hitSlop={6}>
-              <Text style={{ color: t.muted, fontSize: 13 }}>
-                at <Text style={{ color: t.ink, fontWeight: '600' }}>{dish.restaurants.name}</Text>
-                {dish.restaurants.cuisine ? <Text style={{ fontStyle: 'italic' }}> · {dish.restaurants.cuisine}</Text> : null}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+        <Pressable onPress={() => router.push({ pathname: '/dish/[id]', params: { id: dish.id } })}>
+          <Text style={[styles.dish, { color: t.ink }]}>{dish.name}</Text>
+        </Pressable>
       ) : null}
       {review.taste != null && review.presentation != null && review.value != null ? (
-        <Text style={{ color: t.muted, fontSize: 13 }}>
-          Taste {formatScore(review.taste)} · Presentation {formatScore(review.presentation)} · Value {formatScore(review.value)}
-        </Text>
+        <ScoreBars taste={Number(review.taste)} looks={Number(review.presentation)} value={Number(review.value)} />
       ) : null}
-      {review.body ? <Text style={{ color: t.ink, lineHeight: 21 }}>{review.body}</Text> : null}
+      {review.body ? <Text style={{ color: t.ink, lineHeight: 21, fontSize: 15 }}>“{review.body}”</Text> : null}
       <View style={styles.actions}>
         <Pressable accessibilityRole="button" accessibilityLabel={liked ? 'Unlike' : 'Like'} onPress={toggleLike} hitSlop={8} style={styles.action}>
-          <Text style={{ fontSize: 20, color: liked ? t.lo : t.muted }}>{liked ? '♥' : '♡'}</Text>
-          {likes > 0 ? <Text style={{ color: t.muted, fontWeight: '600' }}>{likes}</Text> : null}
+          <SymbolView name={{ ios: liked ? 'heart.fill' : 'heart', android: 'favorite', web: 'favorite' }} tintColor={liked ? t.accent : t.muted} size={20}
+            fallback={<Text style={{ fontSize: 20, color: liked ? t.accent : t.muted }}>{liked ? '♥' : '♡'}</Text>} />
+          <Text style={{ color: t.muted, fontWeight: '600' }}>{likes}</Text>
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Comments" hitSlop={8} style={styles.action}
           onPress={onComment ?? (() => router.push({ pathname: '/comments/[id]', params: { id: review.id } }))}>
-          <Text style={{ fontSize: 17, color: t.muted }}>💬</Text>
-          <Text style={{ color: t.muted, fontWeight: '600' }}>
-            {review.comment_count > 0 ? review.comment_count : 'Comment'}
-          </Text>
+          <SymbolView name={{ ios: 'bubble.left', android: 'chat_bubble', web: 'chat_bubble' }} tintColor={t.muted} size={19}
+            fallback={<Text style={{ fontSize: 17, color: t.muted }}>💬</Text>} />
+          <Text style={{ color: t.muted, fontWeight: '600' }}>{review.comment_count}</Text>
         </Pressable>
-        {firstPhoto(review) ? (
+        {photo ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Share" hitSlop={8} style={styles.action}
             onPress={() => router.push({ pathname: '/share/[id]', params: { id: review.id } })}>
-            <SymbolView name={{ ios: 'square.and.arrow.up', android: 'share', web: 'share' }} tintColor={t.muted} size={18} />
-            <Text style={{ color: t.muted, fontWeight: '600' }}>Share</Text>
+            <SymbolView name={{ ios: 'square.and.arrow.up', android: 'share', web: 'share' }} tintColor={t.muted} size={19} />
+          </Pressable>
+        ) : null}
+        <View style={{ flex: 1 }} />
+        {dishId ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={saved ? 'Remove from Want to try' : 'Save to Want to try'}
+            onPress={toggleSaved} hitSlop={8}>
+            <SymbolView name={{ ios: saved ? 'bookmark.fill' : 'bookmark', android: 'bookmark', web: 'bookmark' }}
+              tintColor={saved ? t.accent : t.muted} size={20} />
           </Pressable>
         ) : null}
       </View>
@@ -223,22 +314,32 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
 }
 
 const styles = StyleSheet.create({
-  pill: { flexDirection: 'row', alignItems: 'baseline', borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  pill: { borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5, alignItems: 'center' },
+  pillSm: { paddingHorizontal: 8, paddingVertical: 3 },
+  pillLg: { paddingHorizontal: 14, paddingVertical: 7 },
   pillNum: { fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] },
-  pillOf: { fontWeight: '600', fontSize: 10, opacity: 0.75 },
-  button: { borderRadius: 10, paddingVertical: 13, paddingHorizontal: 16, alignItems: 'center' },
+  photoScore: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(10,10,10,0.72)' },
+  barRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  barLabel: { width: 48, fontSize: 14 },
+  barTrack: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
+  barFill: { height: 4, borderRadius: 2 },
+  barNum: { width: 30, textAlign: 'right', fontWeight: '700', fontSize: 14, fontVariant: ['tabular-nums'] },
+  chip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
+  tabs: { flexDirection: 'row', gap: 24, borderBottomWidth: StyleSheet.hairlineWidth },
+  tab: { paddingBottom: 10, borderBottomWidth: 2.5 },
+  button: { borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, alignItems: 'center' },
   buttonText: { fontWeight: '700', fontSize: 15 },
   field: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.9, textTransform: 'uppercase' },
   empty: { paddingVertical: 40, alignItems: 'center', gap: 6 },
   emptyTitle: { fontWeight: '700', fontSize: 16 },
   emptyBody: { textAlign: 'center', lineHeight: 20 },
-  card: { gap: 10, paddingBottom: 16, borderBottomWidth: StyleSheet.hairlineWidth },
+  card: { gap: 12, padding: 14, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth },
   who: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  photo: { width: '100%', aspectRatio: 1, borderRadius: 12 },
-  dish: { fontWeight: '700', fontSize: 16 },
+  photo: { width: '100%', aspectRatio: 4 / 3, borderRadius: 16 },
+  dish: { fontWeight: '700', fontSize: 20, letterSpacing: -0.3 },
   more: { paddingHorizontal: 4 },
-  actions: { flexDirection: 'row', gap: 22, paddingTop: 2 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingTop: 2 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   segments: { flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },
   segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: 'transparent' },

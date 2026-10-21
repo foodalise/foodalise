@@ -21,9 +21,9 @@ export function MapFilterSheet({ kind, filters, onChange, onClose }: {
   const t = useTheme();
   const chip = (label: string, on: boolean, onPress: () => void, hint?: string) => (
     <Pressable key={label} onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }}
-      style={[styles.chip, { borderColor: on ? t.ink : t.line, backgroundColor: on ? t.ink : 'transparent' }]}>
-      <Text style={{ color: on ? t.surface : t.ink, fontWeight: '600' }}>{label}</Text>
-      {hint ? <Text style={{ color: on ? t.surface : t.muted, fontSize: 11 }}>{hint}</Text> : null}
+      style={[styles.chip, { borderColor: on ? t.accent : t.line, backgroundColor: on ? t.accent : 'transparent' }]}>
+      <Text style={{ color: on ? t.accentInk : t.ink, fontWeight: '600' }}>{label}</Text>
+      {hint ? <Text style={{ color: on ? t.accentInk : t.muted, fontSize: 11 }}>{hint}</Text> : null}
     </Pressable>
   );
 

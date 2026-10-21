@@ -1,11 +1,13 @@
 import { Image } from 'expo-image';
 import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
+import { SymbolView } from 'expo-symbols';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
 import { PhotoStats } from '@/components/PhotoStats';
-import { Button, Empty, Field, ReviewCard, Segmented } from '@/components/ui';
+import { Button, Empty, Field, PhotoScore, ReviewCard, UnderlineTabs } from '@/components/ui';
 import { WishlistList } from '@/components/WishlistList';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
@@ -24,6 +26,7 @@ export function ProfileView({ userId }: { userId: string }) {
   const { session } = useAuth();
   const me = session?.user.id;
   const isMe = me === userId;
+  const insets = useSafeAreaInsets();
   // Three photos per row: screen width minus the 16pt page padding and two 4pt gaps.
   const cell = Math.floor((useWindowDimensions().width - 32 - 8) / 3);
   const [username, setUsername] = useState<string | null>(null);
@@ -142,6 +145,26 @@ export function ProfileView({ userId }: { userId: string }) {
     ]);
   }
 
+  // The gear on your own page: legal pages, signing out and deleting your account.
+  function openSettings() {
+    Alert.alert('Settings', undefined, [
+      { text: 'Terms of Use', onPress: () => router.push('/terms') },
+      { text: 'Privacy policy', onPress: () => router.push('/privacy') },
+      { text: 'Data credits', onPress: () => router.push('/credits') },
+      { text: 'Sign out', onPress: () => supabase.auth.signOut() },
+      { text: 'Delete my account', style: 'destructive', onPress: confirmDeleteAccount },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  function editProfile() {
+    Alert.alert('Edit profile', undefined, [
+      { text: 'Change profile photo', onPress: pickAvatar },
+      { text: bio ? 'Edit bio' : 'Add a bio', onPress: () => setEditingBio(bio ?? '') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
   function openDish(r: FeedReview) {
     if (r.dishes) router.push({ pathname: '/dish/[id]', params: { id: r.dishes.id } });
   }
@@ -189,40 +212,53 @@ export function ProfileView({ userId }: { userId: string }) {
     return (
       <Pressable key={r.id} accessibilityRole="button" accessibilityLabel={r.dishes?.name ?? 'Review photo'}
         onPress={() => onTile(r)}
-        style={{ width: cell, height: cell, borderRadius: 6, overflow: 'hidden', backgroundColor: t.bg }}>
+        style={{ width: cell, height: cell, borderRadius: 6, overflow: 'hidden', backgroundColor: t.card }}>
         {p ? <Image source={{ uri: photoUrl(p) }} style={{ width: cell, height: cell }} contentFit="cover" /> : null}
-        <PhotoStats likes={r.like_count} comments={r.comment_count} rating={Number(r.rating)} />
+        <PhotoScore rating={Number(r.rating)} style={{ position: 'absolute', left: 6, bottom: 6 }} />
+        <PhotoStats likes={r.like_count} comments={r.comment_count} rating={Number(r.rating)} showRating={false} />
       </Pressable>
     );
   };
   const avg = reviews.length ? reviews.reduce((s, r) => s + Number(r.rating), 0) / reviews.length : null;
+  // The last square on your own grid: a shortcut to review another dish.
+  const addTile = (
+    <Pressable key="add" accessibilityRole="button" onPress={() => router.push('/review')}
+      style={{ width: cell, height: cell, borderRadius: 6, backgroundColor: t.card, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+      <Text style={{ color: t.muted, fontSize: 30, fontWeight: '300' }}>+</Text>
+      <Text style={{ color: t.muted, fontSize: 13 }}>Add a dish</Text>
+    </Pressable>
+  );
 
   return (
     <ScrollView style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 16 }}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load()} />}>
       {!isMe ? <Stack.Screen options={{ title: username ? `@${username}` : '' }} /> : null}
+      {isMe ? (
+        <View style={[styles.titleRow, { paddingTop: insets.top }]}>
+          <Text style={[styles.title, { color: t.ink }]}>You</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={openSettings}
+            style={[styles.gear, { backgroundColor: t.card, borderColor: t.line }]}>
+            <SymbolView name={{ ios: 'gearshape', android: 'settings', web: 'settings' }} tintColor={t.ink} size={20} />
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.head}>
         <Pressable disabled={!isMe} onPress={pickAvatar} accessibilityRole={isMe ? 'button' : undefined}
-          accessibilityLabel={isMe ? 'Change profile photo' : undefined}>
-          <Avatar username={username} path={avatar} size={72} />
-          {isMe ? (
-            <View style={[styles.camera, { backgroundColor: t.surface, borderColor: t.line }]}>
-              <Text style={{ fontSize: 12 }}>📷</Text>
-            </View>
-          ) : null}
+          accessibilityLabel={isMe ? 'Change profile photo' : undefined}
+          style={[styles.ring, { borderColor: t.accent }]}>
+          <Avatar username={username} path={avatar} size={84} />
         </Pressable>
-        <Text style={[styles.name, { color: t.ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-          @{username ?? '…'}
-        </Text>
-        {/* The bio sits top right, beside the username. */}
-        <View style={styles.bio}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={[styles.name, { color: t.ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+            @{username ?? '…'}
+          </Text>
           {editingBio !== null ? null : bio ? (
             <Pressable disabled={!isMe} onPress={() => setEditingBio(bio)}>
-              <Text style={{ color: t.ink, fontSize: 13, lineHeight: 18 }} numberOfLines={6}>{bio}</Text>
+              <Text style={{ color: t.muted, fontSize: 14, lineHeight: 19 }} numberOfLines={4}>{bio}</Text>
             </Pressable>
           ) : isMe ? (
-            <Pressable onPress={() => setEditingBio('')} style={[styles.bioEmpty, { borderColor: t.line }]}>
-              <Text style={{ color: t.muted, fontSize: 13 }}>+ Add a bio</Text>
+            <Pressable onPress={() => setEditingBio('')} hitSlop={6}>
+              <Text style={{ color: t.muted, fontSize: 14 }}>+ Add a bio</Text>
             </Pressable>
           ) : null}
         </View>
@@ -239,22 +275,16 @@ export function ProfileView({ userId }: { userId: string }) {
           </View>
         </View>
       ) : null}
-      <View style={styles.stats}>
-        {([[followers, followers === 1 ? 'follower' : 'followers'], [following, 'following']] as const).map(([n, l]) => (
-          <View key={l} style={[styles.stat, { borderColor: t.line }]}>
+      <View style={[styles.stats, { backgroundColor: t.card, borderColor: t.line }]}>
+        {([[reviews.length, reviews.length === 1 ? 'dish' : 'dishes'], [restaurants, restaurants === 1 ? 'place' : 'places'],
+          [formatScore(avg), 'avg'], [followers, followers === 1 ? 'follower' : 'followers'], [following, 'following']] as const).map(([n, l]) => (
+          <View key={l} style={styles.stat}>
             <Text style={[styles.statNum, { color: t.ink }]}>{n}</Text>
-            <Text style={{ color: t.muted, fontSize: 11, fontWeight: '600' }}>{l}</Text>
+            <Text style={{ color: t.muted, fontSize: 12 }}>{l}</Text>
           </View>
         ))}
       </View>
-      <View style={styles.stats}>
-        {[[reviews.length, 'dishes'], [restaurants, 'restaurants'], [formatScore(avg), 'avg score']].map(([n, l]) => (
-          <View key={l} style={[styles.stat, { borderColor: t.line }]}>
-            <Text style={[styles.statNum, { color: t.ink }]}>{n}</Text>
-            <Text style={{ color: t.muted, fontSize: 11, fontWeight: '600' }}>{l}</Text>
-          </View>
-        ))}
-      </View>
+      {isMe && editingBio === null ? <Button variant="ghost" title="Edit profile" onPress={editProfile} /> : null}
       {!isMe && me && !iBlocked && reviews.length ? (
         <View style={[styles.taste, { borderColor: t.line }]}>
           {taste ? (
@@ -280,15 +310,15 @@ export function ProfileView({ userId }: { userId: string }) {
       {iBlocked ? <Text style={{ color: t.muted }}>You've blocked this person, so you can't see their reviews.</Text> : null}
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
       {reviews.length || isMe ? (
-        <Segmented value={view} onChange={setView}
-          options={[{ value: 'items', label: 'Items' }, { value: 'restaurants', label: 'Restaurant' },
+        <UnderlineTabs value={view} onChange={setView}
+          options={[{ value: 'items', label: 'Dishes' }, { value: 'restaurants', label: 'Places' },
             ...(isMe ? [{ value: 'wishlist' as const, label: 'Want to try' }] : [])]} />
       ) : null}
       {view === 'wishlist' && isMe ? <WishlistList /> : null}
       {view !== 'wishlist' && reviews.length && isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
       {view === 'wishlist' ? null : reviews.length && view === 'items' ? (
         // Your own page is a photo grid; anyone else's reads like the Feed.
-        isMe ? <View style={styles.grid}>{reviews.map(tile)}</View> : <View style={{ gap: 16 }}>{reviews.map((r) => <ReviewCard key={r.id} review={r} />)}</View>
+        isMe ? <View style={styles.grid}>{reviews.map(tile)}{addTile}</View> : <View style={{ gap: 16 }}>{reviews.map((r) => <ReviewCard key={r.id} review={r} />)}</View>
       ) : reviews.length ? (
         <View style={{ gap: 18 }}>
           {byRestaurant.map((g) => {
@@ -306,25 +336,13 @@ export function ProfileView({ userId }: { userId: string }) {
             );
           })}
         </View>
-      ) : loading ? null : (
+      ) : loading ? null : isMe ? (
+        <View style={styles.grid}>{addTile}</View>
+      ) : (
         <Empty title={isMe ? 'Your food diary is empty' : 'No reviews yet'}
           body={isMe ? 'Every dish you review will appear here.' : undefined} />
       )}
-      {isMe ? (
-        <View style={{ gap: 8 }}>
-          <Button variant="ghost" title="Sign out" onPress={() => supabase.auth.signOut()} />
-          <View style={styles.legal}>
-            {([['/terms', 'Terms of Use'], ['/privacy', 'Privacy policy'], ['/credits', 'Data credits']] as const).map(([href, label]) => (
-              <Pressable key={href} accessibilityRole="link" onPress={() => router.push(href)} style={styles.link}>
-                <Text style={{ color: t.muted, fontSize: 13 }}>{label}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Pressable accessibilityRole="button" onPress={confirmDeleteAccount} disabled={busy} style={styles.link}>
-            <Text style={{ color: t.lo }}>Delete my account</Text>
-          </Pressable>
-        </View>
-      ) : me ? (
+      {!isMe && me ? (
         <Pressable accessibilityRole="button" onPress={toggleBlock} style={styles.link}>
           <Text style={{ color: iBlocked ? t.muted : t.lo }}>{iBlocked ? `Unblock @${username ?? ''}` : `Block @${username ?? ''}`}</Text>
         </Pressable>
@@ -334,17 +352,17 @@ export function ProfileView({ userId }: { userId: string }) {
 }
 
 const styles = StyleSheet.create({
-  taste: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, padding: 12 },
+  taste: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 16, padding: 12 },
   tasteNum: { fontSize: 28, fontWeight: '900', letterSpacing: -0.5 },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  bio: { flex: 1, minWidth: 110 },
-  bioEmpty: { borderWidth: 1, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  camera: { position: 'absolute', right: -2, bottom: -2, width: 26, height: 26, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  name: { flexShrink: 1, maxWidth: '45%', fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
-  stats: { flexDirection: 'row', gap: 8 },
-  stat: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 10, alignItems: 'center' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  title: { fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
+  gear: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  ring: { borderWidth: 3, borderRadius: 999, padding: 3 },
+  name: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+  stats: { flexDirection: 'row', borderWidth: 1, borderRadius: 18, paddingVertical: 14 },
+  stat: { flex: 1, alignItems: 'center', gap: 2 },
   statNum: { fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
   link: { alignItems: 'center', paddingVertical: 8 },
-  legal: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: 16 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
 });

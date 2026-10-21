@@ -92,14 +92,14 @@ export default function Explore() {
             <View style={[styles.person, { borderBottomColor: t.line }]}>
               <Pressable style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
                 onPress={() => router.push({ pathname: '/user/[id]', params: { id: item.id } })}>
-                <View style={[styles.avatar, { backgroundColor: t.ink }]}>
-                  <Text style={{ color: t.surface, fontWeight: '700' }}>{item.username[0]?.toUpperCase()}</Text>
+                <View style={[styles.avatar, { backgroundColor: t.accent }]}>
+                  <Text style={{ color: t.accentInk, fontWeight: '700' }}>{item.username[0]?.toUpperCase()}</Text>
                 </View>
                 <Text style={{ color: t.ink, fontWeight: '700', fontSize: 15 }}>@{item.username}</Text>
               </Pressable>
               <Pressable accessibilityRole="button" onPress={() => toggleFollow(item)}
-                style={[styles.follow, on ? { borderColor: t.line } : { backgroundColor: t.ink, borderColor: t.ink }]}>
-                <Text style={{ color: on ? t.ink : t.surface, fontWeight: '700', fontSize: 13 }}>{on ? 'Following' : 'Follow'}</Text>
+                style={[styles.follow, on ? { borderColor: t.line } : { backgroundColor: t.accent, borderColor: t.accent }]}>
+                <Text style={{ color: on ? t.ink : t.accentInk, fontWeight: '700', fontSize: 13 }}>{on ? 'Following' : 'Follow'}</Text>
               </Pressable>
             </View>
           );

@@ -48,6 +48,17 @@ export async function loadWishlist(): Promise<WishPlace[]> {
   return [...byId.values()].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
 
+// The dishes you've saved, kept in memory so every feed card can show its bookmark
+// without its own request. Pass refresh to re-read it (e.g. when the feed reloads).
+let wanted: Promise<Set<string>> | null = null;
+export function wantedDishIds(refresh = false) {
+  if (!wanted || refresh) {
+    wanted = Promise.resolve(supabase.from('wishlist').select('dish_id'))
+      .then(({ data }) => new Set((data ?? []).map((w) => w.dish_id as string)));
+  }
+  return wanted;
+}
+
 export async function isWanted(dishId: string) {
   const { count } = await supabase.from('wishlist').select('*', { count: 'exact', head: true }).eq('dish_id', dishId);
   return (count ?? 0) > 0;
@@ -58,6 +69,7 @@ export async function setWanted(userId: string, dishId: string, want: boolean) {
     ? await supabase.from('wishlist').upsert({ user_id: userId, dish_id: dishId }, { ignoreDuplicates: true })
     : await supabase.from('wishlist').delete().eq('user_id', userId).eq('dish_id', dishId);
   if (error) throw new Error("Couldn't update your wishlist. Check your connection and try again.");
+  wantedDishIds().then((ids) => { if (want) ids.add(dishId); else ids.delete(dishId); });
 }
 
 // Whether a restaurant is on your list: saved itself, and how many of its dishes you've saved.
@@ -87,6 +99,7 @@ export async function setRestaurantWanted(userId: string, restaurantId: string, 
       : Promise.resolve({ error: null }),
   ]);
   if (a.error || b.error) throw new Error("Couldn't update your wishlist. Check your connection and try again.");
+  if (saved?.length) wantedDishIds().then((ids) => saved.forEach((d) => ids.delete(d.dish_id)));
 }
 
 // How many people want to try this restaurant (only the number, never who).

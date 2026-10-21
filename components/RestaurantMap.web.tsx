@@ -8,6 +8,7 @@ export type RestaurantMapHandle = { moveTo: (region: Region) => void };
 
 type Props = {
   restaurants: MapRestaurant[];
+  covers: Record<string, string>;
   selectedId: string | null;
   showUser: boolean;
   onSelect: (id: string | null) => void;
