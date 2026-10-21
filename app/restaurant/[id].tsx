@@ -3,13 +3,21 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SnapMenuButton } from '@/components/SnapMenuButton';
-import { Button, Empty, Label, ScorePill } from '@/components/ui';
+import { Button, Empty, Field, Label, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { fetchWebsiteMenu } from '@/lib/menu';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
 type DishRow = { id: string; name: string; section: string | null; price_pence: number | null; review_count: number; avg_rating: number | null };
+
+const LOOKUP_RESULT: Record<string, string> = {
+  bad_website: "That doesn't look like the restaurant's own website. Check the address and try again.",
+  unreadable: "Their website wouldn't let us in. Try snapping the menu instead.",
+  no_menu: "We couldn't find a menu on that website. Try snapping the menu instead.",
+  limit: "You've looked up lots of menus today. Try again tomorrow.",
+  error: 'Something went wrong reading their website. Try again later.',
+};
 
 const SOURCE_LABEL: Record<Restaurant['menu_source'], string> = {
   chain: 'Chain menu loaded', website: 'Menu read from website', users: 'Menu added by diners', none: 'No menu yet',
@@ -21,6 +29,8 @@ export default function RestaurantScreen() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [dishes, setDishes] = useState<DishRow[] | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
+  const [website, setWebsite] = useState('');
+  const [lookupNote, setLookupNote] = useState<string | null>(null);
 
   const loadDishes = useCallback(() => {
     supabase.from('dishes').select('id, name, section, price_pence, review_count, avg_rating').eq('restaurant_id', id).order('name')
@@ -54,6 +64,20 @@ export default function RestaurantScreen() {
     return () => { live = false; };
   }, [needsMenu, id, loadRestaurant, loadDishes]);
 
+  const readTheirWebsite = async () => {
+    setLookingUp(true);
+    setLookupNote(null);
+    const { status, added } = await fetchWebsiteMenu(id, website.trim());
+    setLookingUp(false);
+    if (added > 0) {
+      setWebsite('');
+      loadRestaurant();
+      loadDishes();
+    } else {
+      setLookupNote(LOOKUP_RESULT[status] ?? LOOKUP_RESULT.error);
+    }
+  };
+
   const list = dishes ?? [];
   const sections = [...new Set(list.map((d) => d.section ?? 'Menu'))];
 
@@ -77,7 +101,17 @@ export default function RestaurantScreen() {
           <ActivityIndicator color={t.muted} />
           <Text style={{ color: t.muted }}>Looking for the menu on their website…</Text>
         </View>
-      ) : dishes?.length === 0 ? <Empty title="No dishes yet" body="Snap the menu to add every dish, or add one when posting a review." /> : null}
+      ) : dishes?.length === 0 ? (
+        <>
+          <Empty title="No dishes yet" body="Snap the menu to add every dish, or add one when posting a review." />
+          <View style={{ gap: 8 }}>
+            <Label>Know their website?</Label>
+            <Field value={website} onChangeText={setWebsite} placeholder="e.g. mangialondon.com" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+            <Button title="Read the menu from their website" variant="ghost" disabled={!website.trim()} onPress={readTheirWebsite} />
+            {lookupNote ? <Text style={{ color: t.muted }}>{lookupNote}</Text> : null}
+          </View>
+        </>
+      ) : null}
       {sections.map((s) => (
         <View key={s} style={{ gap: 2 }}>
           <Label>{s}</Label>
