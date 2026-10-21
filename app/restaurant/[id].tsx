@@ -28,7 +28,7 @@ const REFRESH_RESULT: Record<string, string> = {
   error: 'Something went wrong refreshing the menu. Try again later.',
 };
 type PhotoRow = {
-  id: string; created_at: string; like_count: number; comment_count: number;
+  id: string; created_at: string; like_count: number; comment_count: number; rating: number;
   dishes: { name: string } | null; review_photos: { storage_path: string; position: number }[];
 };
 
@@ -67,13 +67,13 @@ export default function RestaurantScreen() {
 
   // Every photo diners have posted here: most liked and commented on first, then newest.
   const loadPhotos = useCallback(() => {
-    supabase.from('reviews').select('id, created_at, like_count, comment_count, review_photos(storage_path, position), dishes!inner(name, restaurant_id)')
+    supabase.from('reviews').select('id, created_at, rating, like_count, comment_count, review_photos(storage_path, position), dishes!inner(name, restaurant_id)')
       .eq('dishes.restaurant_id', id).order('created_at', { ascending: false }).limit(500)
       .returns<PhotoRow[]>().then(({ data }) => {
         const rows = [...(data ?? [])].sort((a, b) =>
           (b.like_count + b.comment_count) - (a.like_count + a.comment_count) || b.created_at.localeCompare(a.created_at));
         setPhotos(rows.flatMap((r) => [...r.review_photos].sort((a, b) => a.position - b.position).map((p) => ({
-          path: p.storage_path, reviewId: r.id, dish: r.dishes?.name ?? '', likes: r.like_count, comments: r.comment_count,
+          path: p.storage_path, reviewId: r.id, dish: r.dishes?.name ?? '', likes: r.like_count, comments: r.comment_count, rating: Number(r.rating),
         }))));
       });
   }, [id]);

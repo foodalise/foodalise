@@ -1,5 +1,5 @@
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useFocusEffect, useNavigation } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, RefreshControl, Text, View } from 'react-native';
 
 import { Empty, ReviewCard, Segmented } from '@/components/ui';
@@ -20,6 +20,11 @@ export default function Feed() {
   const [error, setError] = useState<string | null>(null);
   const [followsAnyone, setFollowsAnyone] = useState(true);
   const firstLoad = useRef(true);
+  // Tapping the Feed tab, from any tab, starts you at the top.
+  const list = useRef<FlatList<FeedReview>>(null);
+  const navigation = useNavigation();
+  useEffect(() => (navigation as unknown as { addListener: (e: 'tabPress', cb: () => void) => () => void })
+    .addListener('tabPress', () => list.current?.scrollToOffset({ offset: 0, animated: true })), [navigation]);
 
   const load = useCallback(async (quiet = false) => {
     if (!me) return;
@@ -46,6 +51,7 @@ export default function Feed() {
 
   return (
     <FlatList
+      ref={list}
       style={{ backgroundColor: t.surface }}
       contentContainerStyle={{ padding: 16, gap: 16 }}
       data={reviews}

@@ -1,12 +1,13 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
+import { PhotoStats } from '@/components/PhotoStats';
 import { useTheme } from '@/constants/theme';
 import { photoUrl } from '@/lib/supabase';
 
-export type GalleryPhoto = { path: string; reviewId: string; dish: string; likes: number; comments: number };
+export type GalleryPhoto = { path: string; reviewId: string; dish: string; likes: number; comments: number; rating: number };
 
 // Photos in pages of 9 (a 3 x 3 grid); swipe sideways for the next 9.
 // Tapping a photo opens that post with its comments.
@@ -39,11 +40,7 @@ export function PhotoGallery({ photos }: { photos: GalleryPhoto[] }) {
               <Pressable key={p.path} accessibilityLabel={p.dish}
                 onPress={() => router.push({ pathname: '/comments/[id]', params: { id: p.reviewId } })}>
                 <Image source={{ uri: photoUrl(p.path) }} style={{ width: tile, height: tile, borderRadius: 8, backgroundColor: t.bg }} contentFit="cover" />
-                {p.likes + p.comments > 0 ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>♥ {p.likes}  💬 {p.comments}</Text>
-                  </View>
-                ) : null}
+                <PhotoStats likes={p.likes} comments={p.comments} rating={p.rating} />
               </Pressable>
             ))}
           </View>
@@ -61,8 +58,6 @@ export function PhotoGallery({ photos }: { photos: GalleryPhoto[] }) {
 }
 
 const styles = StyleSheet.create({
-  badge: { position: 'absolute', left: 4, bottom: 4, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2, backgroundColor: 'rgba(0,0,0,0.55)' },
-  badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
   dot: { width: 6, height: 6, borderRadius: 3 },
 });
