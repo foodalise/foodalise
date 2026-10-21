@@ -237,20 +237,10 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
     <View style={styles.card}>
       <View style={styles.who}>
         <Avatar username={review.profiles?.username} path={review.profiles?.avatar_path} size={36} />
-        <View style={{ flex: 1 }}>
-          <Pressable disabled={!review.profiles} hitSlop={4}
-            onPress={() => review.profiles && router.push({ pathname: '/user/[id]', params: { id: review.profiles.id } })}>
-            <Text style={{ color: t.ink, fontWeight: '700', fontSize: 15 }}>@{review.profiles?.username ?? 'someone'}</Text>
-          </Pressable>
-          <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>
-            {timeAgo(review.created_at)}
-            {place ? (
-              <Text onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: place.id } })}>
-                {' · '}{place.name}{place.cuisine ? <Text style={{ fontStyle: 'italic' }}>, {place.cuisine}</Text> : null}
-              </Text>
-            ) : null}
-          </Text>
-        </View>
+        <Pressable style={{ flex: 1 }} disabled={!review.profiles} hitSlop={4}
+          onPress={() => review.profiles && router.push({ pathname: '/user/[id]', params: { id: review.profiles.id } })}>
+          <Text style={{ color: t.ink, fontWeight: '700', fontSize: 15 }}>@{review.profiles?.username ?? 'someone'}</Text>
+        </Pressable>
         <ScorePill rating={review.rating} />
         {me && author && author.id !== me ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Report or block" onPress={openMenu} hitSlop={10} style={styles.more}>
@@ -262,11 +252,24 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
         <Image source={{ uri: photoUrl(photo) }} contentFit="cover"
           style={[styles.photo, { width, height: Math.round(width * PHOTO_RATIO), backgroundColor: t.card }]} />
       ) : null}
-      {dish ? (
-        <Pressable onPress={() => router.push({ pathname: '/dish/[id]', params: { id: dish.id } })}>
-          <Text style={[styles.dish, { color: t.ink }]}>{dish.name}</Text>
-        </Pressable>
-      ) : null}
+      {/* Under the photo: the dish, then where it's from; how long ago sits at the photo's bottom right. */}
+      <View style={styles.under}>
+        <View style={{ flex: 1, gap: 2 }}>
+          {dish ? (
+            <Pressable onPress={() => router.push({ pathname: '/dish/[id]', params: { id: dish.id } })}>
+              <Text style={[styles.dish, { color: t.ink }]}>{dish.name}</Text>
+            </Pressable>
+          ) : null}
+          {place ? (
+            <Pressable onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: place.id } })} hitSlop={4}>
+              <Text style={{ color: t.muted, fontSize: 14 }} numberOfLines={1}>
+                {place.name}{place.cuisine ? <Text style={{ fontStyle: 'italic' }}> · {place.cuisine}</Text> : null}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <Text style={{ color: t.muted, fontSize: 13, paddingTop: 4 }}>{timeAgo(review.created_at)}</Text>
+      </View>
       {review.taste != null && review.presentation != null && review.value != null ? (
         <Text style={{ color: t.muted, fontSize: 14 }}>
           Taste {formatScore(review.taste)} · Looks {formatScore(review.presentation)} · Value {formatScore(review.value)}
@@ -327,6 +330,7 @@ const styles = StyleSheet.create({
   dish: { fontWeight: '700', fontSize: 20, letterSpacing: -0.3 },
   more: { paddingHorizontal: 4 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingTop: 2 },
+  under: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   segments: { flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },
   segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: 'transparent' },
