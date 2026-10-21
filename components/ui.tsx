@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type TextInputProps } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { formatScore, scoreColor, tint, useTheme } from '@/constants/theme';
@@ -31,24 +31,6 @@ export function PhotoScore({ rating, style }: { rating: number | null | undefine
   return (
     <View style={[styles.photoScore, style]}>
       <Text style={[styles.pillNum, { color: scoreColor(t, rating), fontSize: 12 }]}>{formatScore(rating)}</Text>
-    </View>
-  );
-}
-
-// Taste / Looks / Value as thin bars out of 10.
-export function ScoreBars({ taste, looks, value }: { taste: number; looks: number; value: number }) {
-  const t = useTheme();
-  return (
-    <View style={{ gap: 6 }}>
-      {([['Taste', taste], ['Looks', looks], ['Value', value]] as const).map(([label, n]) => (
-        <View key={label} style={styles.barRow} accessibilityLabel={`${label} ${formatScore(n)} out of 10`}>
-          <Text style={[styles.barLabel, { color: t.muted }]}>{label}</Text>
-          <View style={[styles.barTrack, { backgroundColor: t.line }]}>
-            <View style={[styles.barFill, { width: `${Math.max(0, Math.min(10, n)) * 10}%`, backgroundColor: t.accent }]} />
-          </View>
-          <Text style={[styles.barNum, { color: t.ink }]}>{formatScore(n)}</Text>
-        </View>
-      ))}
     </View>
   );
 }
@@ -167,9 +149,13 @@ export function Empty({ title, body }: { title: string; body?: string }) {
   );
 }
 
+const PHOTO_RATIO = 420 / 390; // height / width, as in the approved mock-up
+
 // onComment replaces opening the comments page (used on that page itself).
 export function ReviewCard({ review, onComment }: { review: FeedReview; onComment?: () => void }) {
   const t = useTheme();
+  // The photo runs edge to edge: the full screen width, a little taller than wide.
+  const width = useWindowDimensions().width;
   const me = useAuth().session?.user.id;
   const [hidden, setHidden] = useState(false);
   const [liked, setLikedState] = useState(review.liked_by_me);
@@ -248,7 +234,7 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
 
   const place = dish?.restaurants;
   return (
-    <View style={[styles.card, { backgroundColor: t.card, borderColor: t.line }]}>
+    <View style={styles.card}>
       <View style={styles.who}>
         <Avatar username={review.profiles?.username} path={review.profiles?.avatar_path} size={36} />
         <View style={{ flex: 1 }}>
@@ -272,14 +258,19 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
           </Pressable>
         ) : null}
       </View>
-      {photo ? <Image source={{ uri: photoUrl(photo) }} style={[styles.photo, { backgroundColor: t.bg }]} contentFit="cover" /> : null}
+      {photo ? (
+        <Image source={{ uri: photoUrl(photo) }} contentFit="cover"
+          style={[styles.photo, { width, height: Math.round(width * PHOTO_RATIO), backgroundColor: t.card }]} />
+      ) : null}
       {dish ? (
         <Pressable onPress={() => router.push({ pathname: '/dish/[id]', params: { id: dish.id } })}>
           <Text style={[styles.dish, { color: t.ink }]}>{dish.name}</Text>
         </Pressable>
       ) : null}
       {review.taste != null && review.presentation != null && review.value != null ? (
-        <ScoreBars taste={Number(review.taste)} looks={Number(review.presentation)} value={Number(review.value)} />
+        <Text style={{ color: t.muted, fontSize: 14 }}>
+          Taste {formatScore(review.taste)} · Looks {formatScore(review.presentation)} · Value {formatScore(review.value)}
+        </Text>
       ) : null}
       {review.body ? <Text style={{ color: t.ink, lineHeight: 21, fontSize: 15 }}>“{review.body}”</Text> : null}
       <View style={styles.actions}>
@@ -319,11 +310,6 @@ const styles = StyleSheet.create({
   pillLg: { paddingHorizontal: 14, paddingVertical: 7 },
   pillNum: { fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] },
   photoScore: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(10,10,10,0.72)' },
-  barRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  barLabel: { width: 48, fontSize: 14 },
-  barTrack: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
-  barFill: { height: 4, borderRadius: 2 },
-  barNum: { width: 30, textAlign: 'right', fontWeight: '700', fontSize: 14, fontVariant: ['tabular-nums'] },
   chip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
   tabs: { flexDirection: 'row', gap: 24, borderBottomWidth: StyleSheet.hairlineWidth },
   tab: { paddingBottom: 10, borderBottomWidth: 2.5 },
@@ -334,9 +320,10 @@ const styles = StyleSheet.create({
   empty: { paddingVertical: 40, alignItems: 'center', gap: 6 },
   emptyTitle: { fontWeight: '700', fontSize: 16 },
   emptyBody: { textAlign: 'center', lineHeight: 20 },
-  card: { gap: 12, padding: 14, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth },
+  // Lists that show cards have 16pt side padding; the photo reaches past it to the screen edges.
+  card: { gap: 10, paddingBottom: 8 },
   who: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  photo: { width: '100%', aspectRatio: 4 / 3, borderRadius: 16 },
+  photo: { marginHorizontal: -16 },
   dish: { fontWeight: '700', fontSize: 20, letterSpacing: -0.3 },
   more: { paddingHorizontal: 4 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingTop: 2 },
