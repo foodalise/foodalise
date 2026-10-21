@@ -224,9 +224,13 @@ export function ProfileView({ userId }: { userId: string }) {
       {isMe ? (
         <View style={{ gap: 8 }}>
           <Button variant="ghost" title="Sign out" onPress={() => supabase.auth.signOut()} />
-          <Pressable accessibilityRole="link" onPress={() => router.push('/privacy')} style={styles.link}>
-            <Text style={{ color: t.muted }}>Privacy policy</Text>
-          </Pressable>
+          <View style={styles.legal}>
+            {([['/terms', 'Terms of Use'], ['/privacy', 'Privacy policy'], ['/credits', 'Data credits']] as const).map(([href, label]) => (
+              <Pressable key={href} accessibilityRole="link" onPress={() => router.push(href)} style={styles.link}>
+                <Text style={{ color: t.muted, fontSize: 13 }}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
           <Pressable accessibilityRole="button" onPress={confirmDeleteAccount} disabled={busy} style={styles.link}>
             <Text style={{ color: t.lo }}>Delete my account</Text>
           </Pressable>
@@ -248,6 +252,7 @@ const styles = StyleSheet.create({
   stat: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 10, alignItems: 'center' },
   statNum: { fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
   link: { alignItems: 'center', paddingVertical: 8 },
+  legal: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: 16 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   badge: { position: 'absolute', right: 4, bottom: 4, backgroundColor: 'rgba(10,12,10,0.72)', color: '#fff', fontWeight: '800', fontSize: 11, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' },
 });

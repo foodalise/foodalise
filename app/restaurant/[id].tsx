@@ -130,6 +130,9 @@ export default function RestaurantScreen() {
           ))}
         </View>
       ))}
+      <Text style={{ color: t.muted, fontSize: 11, marginTop: 8 }}>
+        Restaurant details and hygiene rating from the Food Standards Agency, under the Open Government Licence v3.0.
+      </Text>
     </ScrollView>
   );
 }

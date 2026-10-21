@@ -50,6 +50,8 @@ function RootLayoutNav() {
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Screen name="privacy" options={{ title: 'Privacy policy' }} />
+        <Stack.Screen name="terms" options={{ title: 'Terms of Use' }} />
+        <Stack.Screen name="credits" options={{ title: 'Data credits' }} />
       </Stack>
     </ThemeProvider>
   );

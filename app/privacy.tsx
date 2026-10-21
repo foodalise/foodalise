@@ -2,10 +2,9 @@ import { Stack } from 'expo-router';
 import { ScrollView, StyleSheet, Text } from 'react-native';
 
 import { useTheme } from '@/constants/theme';
+import { CONTACT_EMAIL } from '@/lib/legal';
 
 // Shown in the app and linked from the App Store listing. Keep it in plain words.
-// Set CONTACT_EMAIL before publishing so people can reach you about their data.
-const CONTACT_EMAIL = '';
 const UPDATED = '21 October 2026';
 
 const SECTIONS: [string, string][] = [
