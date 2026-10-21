@@ -27,6 +27,8 @@ const NOT_OWN_SITE = ['deliveroo.co.uk', 'ubereats.com', 'just-eat.co.uk', 'trip
 const USER_AGENT = 'FoodaliseMenuReader/1.0 (reads public restaurant menus)';
 const MAX_TEXT_CHARS = 80_000;
 const MAX_PDF_BYTES = 15 * 1024 * 1024;
+const MAX_PDF_CHARS_TOTAL = 24_000_000;
+const MAX_PAGES = 5; // homepage plus up to four menu pages or PDFs
 
 const MENU_SCHEMA = {
   type: 'object',
@@ -256,10 +258,27 @@ function renderedMenuLinks(page: Page) {
   return found.slice(0, 1); // keeps the whole lookup well inside the function time limit
 }
 
+// Menu PDFs in rendered text, on the restaurant's own site.
+function renderedPdfLinks(page: Page) {
+  const base = new URL(page.url);
+  const found: string[] = [];
+  for (const m of (page.text ?? '').matchAll(/\[([^\]]*)\]\((https?:\/\/[^)\s]+\.pdf)\)/gi)) {
+    try {
+      const href = new URL(m[2]);
+      if (href.hostname === base.hostname && !/policy|terms|allergen/i.test(m[1]) && !found.includes(href.href)) found.push(href.href);
+    } catch { /* not a link */ }
+  }
+  return found;
+}
+
 async function readMenu(pages: Page[]): Promise<Dish[]> {
   const content: Anthropic.ContentBlockParam[] = [];
   let chars = 0;
+  let pdfChars = 0;
   for (const p of pages) {
+    // Keeps the request under the API's 32MB size limit.
+    if (p.pdf && pdfChars + p.pdf.length > MAX_PDF_CHARS_TOTAL) continue;
+    if (p.pdf) pdfChars += p.pdf.length;
     if (p.pdf) content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.pdf } });
     else if (p.text && chars < MAX_TEXT_CHARS) {
       const text = p.text.slice(0, MAX_TEXT_CHARS - chars);
@@ -326,9 +345,21 @@ Deno.serve(async (req) => {
 
     const home = await getPage(website).catch(() => null);
     const pages = home ? [home] : [];
-    for (const link of home ? menuLinks(home) : []) {
-      const page = await getPage(link).catch(() => null);
-      if (page) pages.push(page);
+    const tried = new Set([website]);
+    // Follow menu links from the homepage, then one step further, since many sites
+    // keep their menus as PDFs on a separate "Menus" page.
+    let next = home ? menuLinks(home) : [];
+    for (let hop = 0; hop < 2 && next.length; hop++) {
+      const found: string[] = [];
+      for (const link of next) {
+        if (tried.has(link) || pages.length >= MAX_PAGES) continue;
+        tried.add(link);
+        const page = await getPage(link).catch(() => null);
+        if (!page) continue;
+        pages.push(page);
+        if (page.html) found.push(...menuLinks(page));
+      }
+      next = found;
     }
     let dishes = pages.length ? await readMenu(pages) : [];
 
@@ -340,7 +371,13 @@ Deno.serve(async (req) => {
         rendered.push(first);
         for (const link of renderedMenuLinks(first)) {
           const page = await getRenderedPage(link);
-          if (page) rendered.push(page);
+          if (!page) continue;
+          rendered.push(page);
+          // A menu PDF linked from the rendered menu page is read directly.
+          for (const pdf of renderedPdfLinks(page).filter((u) => !tried.has(u)).slice(0, 2)) {
+            const doc = await getPage(pdf).catch(() => null);
+            if (doc) rendered.push(doc);
+          }
         }
         dishes = await readMenu(rendered);
       }
