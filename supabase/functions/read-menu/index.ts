@@ -75,11 +75,10 @@ Deno.serve(async (req) => {
   let dishes: Dish[];
   try {
     const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
-    const response = await client.beta.messages.create({
-      model: 'claude-opus-5-5',
+    // Claude Haiku 5.5: the lowest-cost model, which is plenty for reading a menu.
+    const response = await client.messages.create({
+      model: 'claude-haiku-5-5',
       max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
       output_config: { effort: 'low', format: { type: 'json_schema', schema: MENU_SCHEMA } },
       messages: [{
         role: 'user',
