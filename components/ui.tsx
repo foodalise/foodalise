@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
+import { Avatar } from '@/components/Avatar';
 import { formatScore, scoreColor, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { blockUser, reportReview, REPORT_REASONS } from '@/lib/safety';
@@ -161,9 +162,7 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
   return (
     <View style={[styles.card, { borderBottomColor: t.line }]}>
       <View style={styles.who}>
-        <View style={[styles.avatar, { backgroundColor: t.ink }]}>
-          <Text style={{ color: t.surface, fontWeight: '700' }}>{review.profiles?.username?.[0]?.toUpperCase() ?? '?'}</Text>
-        </View>
+        <Avatar username={review.profiles?.username} path={review.profiles?.avatar_path} size={32} />
         <Pressable style={{ flex: 1 }} disabled={!review.profiles}
           onPress={() => review.profiles && router.push({ pathname: '/user/[id]', params: { id: review.profiles.id } })}>
           <Text style={{ color: t.ink, fontWeight: '700' }}>@{review.profiles?.username ?? 'someone'}</Text>
@@ -225,7 +224,6 @@ const styles = StyleSheet.create({
   emptyBody: { textAlign: 'center', lineHeight: 20 },
   card: { gap: 10, paddingBottom: 16, borderBottomWidth: StyleSheet.hairlineWidth },
   who: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   photo: { width: '100%', aspectRatio: 1, borderRadius: 12 },
   dish: { fontWeight: '700', fontSize: 16 },
   more: { paddingHorizontal: 4 },

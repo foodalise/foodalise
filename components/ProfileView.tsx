@@ -3,10 +3,12 @@ import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
+import { Avatar } from '@/components/Avatar';
 import { PhotoStats } from '@/components/PhotoStats';
-import { Button, Empty, ReviewCard, Segmented } from '@/components/ui';
+import { Button, Empty, Field, ReviewCard, Segmented } from '@/components/ui';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
+import { changeAvatar, saveBio } from '@/lib/profile';
 import { deleteReview } from '@/lib/reviews';
 import { blockUser, deleteAccount, unblockUser } from '@/lib/safety';
 import { photoUrl, supabase } from '@/lib/supabase';
@@ -23,6 +25,9 @@ export function ProfileView({ userId }: { userId: string }) {
   // Three photos per row: screen width minus the 16pt page padding and two 4pt gaps.
   const cell = Math.floor((useWindowDimensions().width - 32 - 8) / 3);
   const [username, setUsername] = useState<string | null>(null);
+  const [bio, setBio] = useState<string | null>(null);
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [editingBio, setEditingBio] = useState<string | null>(null); // the draft while editing
   const [reviews, setReviews] = useState<FeedReview[]>([]);
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
@@ -36,7 +41,7 @@ export function ProfileView({ userId }: { userId: string }) {
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     const [profile, theirs, followerCount, followingCount, mine, blocked] = await Promise.all([
-      supabase.from('profiles').select('username').eq('id', userId).single(),
+      supabase.from('profiles').select('username, bio, avatar_path').eq('id', userId).single(),
       supabase.from('reviews').select(REVIEW_SELECT).eq('user_id', userId)
         .order('created_at', { ascending: false }).returns<FeedReview[]>(),
       supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userId),
@@ -49,6 +54,8 @@ export function ProfileView({ userId }: { userId: string }) {
         : Promise.resolve({ data: null }),
     ]);
     setUsername(profile.data?.username ?? null);
+    setBio(profile.data?.bio ?? null);
+    setAvatar(profile.data?.avatar_path ?? null);
     setReviews(theirs.data ?? []);
     setFollowers(followerCount.count ?? 0);
     setFollowing(followingCount.count ?? 0);
@@ -89,6 +96,29 @@ export function ProfileView({ userId }: { userId: string }) {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Block', style: 'destructive', onPress: run },
     ]);
+  }
+
+  async function pickAvatar() {
+    if (!me) return;
+    setError(null);
+    try {
+      const path = await changeAvatar(me, avatar);
+      if (path) setAvatar(path);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function finishBio() {
+    if (!me || editingBio === null) return;
+    setBusy(true); setError(null);
+    try {
+      setBio(await saveBio(me, editingBio));
+      setEditingBio(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(false);
   }
 
   function confirmDeleteAccount() {
@@ -168,11 +198,40 @@ export function ProfileView({ userId }: { userId: string }) {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load()} />}>
       {!isMe ? <Stack.Screen options={{ title: username ? `@${username}` : '' }} /> : null}
       <View style={styles.head}>
-        <View style={[styles.avatar, { backgroundColor: t.ink }]}>
-          <Text style={{ color: t.surface, fontSize: 24, fontWeight: '800' }}>{username?.[0]?.toUpperCase() ?? ''}</Text>
+        <Pressable disabled={!isMe} onPress={pickAvatar} accessibilityRole={isMe ? 'button' : undefined}
+          accessibilityLabel={isMe ? 'Change profile photo' : undefined}>
+          <Avatar username={username} path={avatar} size={72} />
+          {isMe ? (
+            <View style={[styles.camera, { backgroundColor: t.surface, borderColor: t.line }]}>
+              <Text style={{ fontSize: 12 }}>📷</Text>
+            </View>
+          ) : null}
+        </Pressable>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={[styles.name, { color: t.ink }]}>@{username ?? '…'}</Text>
+          {editingBio !== null ? null : bio ? (
+            <Pressable disabled={!isMe} onPress={() => setEditingBio(bio)}>
+              <Text style={{ color: t.ink, lineHeight: 19 }}>{bio}</Text>
+            </Pressable>
+          ) : isMe ? (
+            <Pressable onPress={() => setEditingBio('')}>
+              <Text style={{ color: t.muted }}>+ Add a bio</Text>
+            </Pressable>
+          ) : null}
         </View>
-        <Text style={[styles.name, { color: t.ink }]}>@{username ?? '…'}</Text>
       </View>
+      {editingBio !== null ? (
+        <View style={{ gap: 8 }}>
+          <Field value={editingBio} onChangeText={setEditingBio} multiline maxLength={300} autoFocus
+            placeholder="Tell people about you: favourite food, where you eat, anything you like."
+            style={{ minHeight: 70, textAlignVertical: 'top' }} />
+          <Text style={{ color: t.muted, fontSize: 11, textAlign: 'right' }}>{editingBio.length}/300</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}><Button variant="ghost" title="Cancel" onPress={() => setEditingBio(null)} /></View>
+            <View style={{ flex: 1 }}><Button title="Save" onPress={finishBio} busy={busy} /></View>
+          </View>
+        </View>
+      ) : null}
       <View style={styles.stats}>
         {([[followers, followers === 1 ? 'follower' : 'followers'], [following, 'following']] as const).map(([n, l]) => (
           <View key={l} style={[styles.stat, { borderColor: t.line }]}>
@@ -247,8 +306,8 @@ export function ProfileView({ userId }: { userId: string }) {
 }
 
 const styles = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  head: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  camera: { position: 'absolute', right: -2, bottom: -2, width: 26, height: 26, borderRadius: 13, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
   stats: { flexDirection: 'row', gap: 8 },
   stat: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 10, alignItems: 'center' },
