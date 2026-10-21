@@ -2,8 +2,8 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { OverallBar, ScoreSlider } from '@/components/ScoreSlider';
 import { SnapMenuButton } from '@/components/SnapMenuButton';
@@ -41,6 +41,7 @@ export default function Review() {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const scroll = useRef<ScrollView>(null);
   const [nearby, setNearby] = useState<NearbyRestaurant[] | null>(null);
   const [locationOff, setLocationOff] = useState(false);
 
@@ -139,8 +140,9 @@ export default function Review() {
   const shownDishes = dishes.filter((d) => !term || d.name.toLowerCase().includes(term));
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.surface }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
+    <View style={{ flex: 1, backgroundColor: t.surface }}>
+      <ScrollView ref={scroll} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
         <View style={styles.steps} accessibilityLabel={`Step ${step} of 3`}>
           {[1, 2, 3].map((i) => <View key={i} style={[styles.step, { backgroundColor: i <= step ? t.ink : t.line }]} />)}
         </View>
@@ -214,6 +216,7 @@ export default function Review() {
 
             <Label>Your review</Label>
             <Field multiline placeholder="How was it? Portion, flavour, would you order it again?" value={body} onChangeText={setBody}
+              onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)}
               maxLength={2000} style={{ minHeight: 100, textAlignVertical: 'top' }} />
 
             <Button title="Post review" onPress={submit} busy={busy} disabled={!photo} />
@@ -224,7 +227,7 @@ export default function Review() {
 
         {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
