@@ -8,13 +8,19 @@ import { photoUrl } from '@/lib/supabase';
 
 export type GalleryPhoto = { path: string; reviewId: string; dish: string; likes: number; comments: number };
 
-// Full-width photos you swipe through, with a "3 / 24" counter.
+// Photos in pages of 9 (a 3 x 3 grid); swipe sideways for the next 9.
 // Tapping a photo opens that post with its comments.
+const PER_PAGE = 9;
+
 export function PhotoGallery({ photos }: { photos: GalleryPhoto[] }) {
   const t = useTheme();
   const { width } = useWindowDimensions();
-  const size = width - 32;
+  const pageWidth = width - 32;
+  const gap = 4;
+  const tile = Math.floor((pageWidth - gap * 2) / 3);
   const [index, setIndex] = useState(0);
+  const pages: GalleryPhoto[][] = [];
+  for (let i = 0; i < photos.length; i += PER_PAGE) pages.push(photos.slice(i, i + PER_PAGE));
 
   return (
     <View style={{ gap: 6 }}>
@@ -22,32 +28,41 @@ export function PhotoGallery({ photos }: { photos: GalleryPhoto[] }) {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        data={photos}
-        keyExtractor={(p) => p.path}
-        style={{ width: size, borderRadius: 12 }}
-        getItemLayout={(_, i) => ({ length: size, offset: size * i, index: i })}
-        onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / size))}
-        renderItem={({ item }) => (
-          <Pressable onPress={() => router.push({ pathname: '/comments/[id]', params: { id: item.reviewId } })}>
-            <Image source={{ uri: photoUrl(item.path) }} style={{ width: size, height: size, backgroundColor: t.bg }} contentFit="cover" />
-            <View style={styles.caption}>
-              <Text style={styles.captionText} numberOfLines={1}>{item.dish}</Text>
-              <Text style={styles.captionText}>♥ {item.likes}   💬 {item.comments}</Text>
-            </View>
-          </Pressable>
+        data={pages}
+        keyExtractor={(page) => page[0].path}
+        style={{ width: pageWidth }}
+        getItemLayout={(_, i) => ({ length: pageWidth, offset: pageWidth * i, index: i })}
+        onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
+        renderItem={({ item: page }) => (
+          <View style={{ width: pageWidth, flexDirection: 'row', flexWrap: 'wrap', gap }}>
+            {page.map((p) => (
+              <Pressable key={p.path} accessibilityLabel={p.dish}
+                onPress={() => router.push({ pathname: '/comments/[id]', params: { id: p.reviewId } })}>
+                <Image source={{ uri: photoUrl(p.path) }} style={{ width: tile, height: tile, borderRadius: 8, backgroundColor: t.bg }} contentFit="cover" />
+                {p.likes + p.comments > 0 ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>♥ {p.likes}  💬 {p.comments}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            ))}
+          </View>
         )}
       />
-      {photos.length > 1 ? (
-        <Text style={{ color: t.muted, fontSize: 12, textAlign: 'center' }}>{index + 1} / {photos.length} · swipe for more</Text>
+      {pages.length > 1 ? (
+        <View style={styles.dots}>
+          {pages.map((_, i) => (
+            <View key={i} style={[styles.dot, { backgroundColor: i === index ? t.ink : t.line }]} />
+          ))}
+        </View>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  caption: {
-    position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-between', gap: 10,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  captionText: { color: '#fff', fontWeight: '600', flexShrink: 1 },
+  badge: { position: 'absolute', left: 4, bottom: 4, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2, backgroundColor: 'rgba(0,0,0,0.55)' },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
 });
