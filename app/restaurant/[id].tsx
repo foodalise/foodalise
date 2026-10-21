@@ -162,6 +162,10 @@ export default function RestaurantScreen() {
   };
 
   const list = onMenu ?? [];
+  // "What to order": the best-scored dishes still on the menu, ties going to the most reviewed.
+  const topDishes = list.filter((d) => d.review_count > 0 && d.avg_rating != null)
+    .sort((a, b) => Number(b.avg_rating) - Number(a.avg_rating) || b.review_count - a.review_count)
+    .slice(0, 3);
   // Dishes that have left the menu stay findable while they have reviews.
   const retired = (dishes ?? []).filter((d) => !d.on_menu && d.review_count > 0);
   // Starters, mains, sides, desserts, drinks; within each, grouped by the menu's own sections.
@@ -215,6 +219,21 @@ export default function RestaurantScreen() {
             {restaurant.hygiene_rating ? <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>Food hygiene {restaurant.hygiene_rating}</Text> : null}
             <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>{SOURCE_LABEL[restaurant.menu_source]}</Text>
           </View>
+        </View>
+      ) : null}
+      {topDishes.length ? (
+        <View style={[styles.order, { borderColor: t.line }]}>
+          <Text style={[styles.orderTitle, { color: t.ink }]}>What to order</Text>
+          {topDishes.map((d, i) => (
+            <Pressable key={d.id} onPress={() => router.push({ pathname: '/dish/[id]', params: { id: d.id } })} style={styles.orderRow}>
+              <Text style={[styles.rank, { color: t.muted }]}>{i + 1}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: t.ink, fontWeight: '700', fontSize: 15 }}>{d.name}</Text>
+                <Text style={{ color: t.muted, fontSize: 12 }}>{d.review_count} {d.review_count === 1 ? 'review' : 'reviews'}</Text>
+              </View>
+              <ScorePill rating={Number(d.avg_rating)} />
+            </Pressable>
+          ))}
         </View>
       ) : null}
       {photos.length ? (
@@ -282,6 +301,10 @@ export default function RestaurantScreen() {
 
 const styles = StyleSheet.create({
   title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
+  order: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 },
+  orderTitle: { fontSize: 17, fontWeight: '800' },
+  orderRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  rank: { width: 18, fontSize: 18, fontWeight: '800', textAlign: 'center' },
   cuisine: { fontSize: 15, fontWeight: '400', fontStyle: 'italic', letterSpacing: 0 },
   chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, fontSize: 12, fontWeight: '600', overflow: 'hidden' },

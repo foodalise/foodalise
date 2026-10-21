@@ -6,6 +6,7 @@ import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWind
 import { Avatar } from '@/components/Avatar';
 import { PhotoStats } from '@/components/PhotoStats';
 import { Button, Empty, Field, ReviewCard, Segmented } from '@/components/ui';
+import { WishlistList } from '@/components/WishlistList';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { changeAvatar, saveBio } from '@/lib/profile';
@@ -34,7 +35,7 @@ export function ProfileView({ userId }: { userId: string }) {
   const [iFollow, setIFollow] = useState(false);
   const [iBlocked, setIBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<'items' | 'restaurants'>('items');
+  const [view, setView] = useState<'items' | 'restaurants' | 'wishlist'>('items');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -256,12 +257,14 @@ export function ProfileView({ userId }: { userId: string }) {
       ) : null}
       {iBlocked ? <Text style={{ color: t.muted }}>You've blocked this person, so you can't see their reviews.</Text> : null}
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
-      {reviews.length ? (
+      {reviews.length || isMe ? (
         <Segmented value={view} onChange={setView}
-          options={[{ value: 'items', label: 'Items' }, { value: 'restaurants', label: 'Restaurant' }]} />
+          options={[{ value: 'items', label: 'Items' }, { value: 'restaurants', label: 'Restaurant' },
+            ...(isMe ? [{ value: 'wishlist' as const, label: 'Want to try' }] : [])]} />
       ) : null}
-      {reviews.length && isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
-      {reviews.length && view === 'items' ? (
+      {view === 'wishlist' && isMe ? <WishlistList /> : null}
+      {view !== 'wishlist' && reviews.length && isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
+      {view === 'wishlist' ? null : reviews.length && view === 'items' ? (
         // Your own page is a photo grid; anyone else's reads like the Feed.
         isMe ? <View style={styles.grid}>{reviews.map(tile)}</View> : <View style={{ gap: 16 }}>{reviews.map((r) => <ReviewCard key={r.id} review={r} />)}</View>
       ) : reviews.length ? (

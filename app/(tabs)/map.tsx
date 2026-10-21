@@ -15,6 +15,9 @@ import { openDirections, priceLabel } from '@/lib/directions';
 import { restaurantPhotos } from '@/lib/photos';
 import { distanceKm, formatDistance, NO_FILTERS, restaurantsIn, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
 import { photoUrl } from '@/lib/supabase';
+import { loadWishlist, type WishDish } from '@/lib/wishlist';
+
+const NEARBY_KM = 0.8; // how close a wishlist dish must be to get a nudge
 
 // What each filter button says, given what's chosen.
 function filterLabel(kind: FilterKind, f: MapFilters) {
@@ -42,6 +45,8 @@ export default function MapScreen() {
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const request = useRef(0);
   const region = useRef<Region | null>(null);
+  const [wishlist, setWishlist] = useState<WishDish[]>([]);
+  const [dismissed, setDismissed] = useState<string | null>(null);
 
   const locate = useCallback(async () => {
     const { granted } = await Location.requestForegroundPermissionsAsync();
@@ -56,7 +61,20 @@ export default function MapScreen() {
   }, []);
 
   // Every time the Map tab is opened, centre it on where you are.
-  useFocusEffect(useCallback(() => { locate().catch(() => setLocationOff(true)); }, [locate]));
+  useFocusEffect(useCallback(() => {
+    locate().catch(() => setLocationOff(true));
+    loadWishlist().then(setWishlist);
+  }, [locate]));
+
+  // The closest dish on your wishlist, if one is a short walk away.
+  const nearby = me ? wishlist
+    .map((w) => {
+      const r = w.dishes?.restaurants;
+      return r?.latitude != null && r.longitude != null
+        ? { w, km: distanceKm(me, { latitude: r.latitude, longitude: r.longitude }) } : null;
+    })
+    .filter((x): x is { w: WishDish; km: number } => !!x && x.km <= NEARBY_KM && x.w.dish_id !== dismissed)
+    .sort((a, b) => a.km - b.km)[0] ?? null : null;
 
   const load = useCallback(async (area: Region) => {
     region.current = area;
@@ -109,6 +127,18 @@ export default function MapScreen() {
               );
             })}
           </ScrollView>
+          {nearby && !selected ? (
+            <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/dish/[id]', params: { id: nearby.w.dish_id } })}
+              style={[styles.nudge, { backgroundColor: t.ink }]}>
+              <Text style={{ color: t.surface, flex: 1, fontSize: 14 }}>
+                You're {formatDistance(nearby.km)} from {nearby.w.dishes?.restaurants?.name}.{' '}
+                <Text style={{ fontWeight: '800' }}>{nearby.w.dishes?.name}</Text> is on your Want to try list.
+              </Text>
+              <Pressable accessibilityLabel="Dismiss" hitSlop={10} onPress={() => setDismissed(nearby.w.dish_id)}>
+                <Text style={{ color: t.surface, fontSize: 16, fontWeight: '800' }}>✕</Text>
+              </Pressable>
+            </Pressable>
+          ) : null}
           {locationOff || error ? (
             <Text style={[styles.banner, { backgroundColor: t.surface, color: error ? t.lo : t.muted }]}>
               {error ?? 'Location is off, so the map starts in central London.'}
@@ -175,6 +205,7 @@ const styles = StyleSheet.create({
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   name: { fontWeight: '800', fontSize: 17 },
   cuisine: { fontWeight: '400', fontSize: 14, fontStyle: 'italic' },
+  nudge: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12 },
   filter: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   photo: { width: 84, height: 84, borderRadius: 10 },
 });
