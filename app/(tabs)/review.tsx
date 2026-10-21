@@ -92,7 +92,7 @@ export default function Review() {
   // Step 2: that restaurant's menu.
   const loadDishes = useCallback(() => {
     if (!restaurant) return;
-    supabase.from('dishes').select('id, name, section').eq('restaurant_id', restaurant.id).order('name')
+    supabase.from('dishes').select('id, name, section').eq('restaurant_id', restaurant.id).eq('on_menu', true).order('name')
       .then(({ data }) => setDishes(data ?? []));
   }, [restaurant]);
   useEffect(loadDishes, [loadDishes]);

@@ -25,12 +25,23 @@ export async function snapMenu(restaurantId: string, fromCamera: boolean): Promi
   return data as { found: number; added: number };
 }
 
-// Asks the fetch-menu function to find the restaurant's own website and read the
-// menu from it. Each restaurant is only tried once a month, so this is cheap to
-// call whenever a restaurant without a menu is opened. Never throws.
-// Pass website when a diner typed it in because we couldn't find it ourselves.
-export async function fetchWebsiteMenu(restaurantId: string, website?: string): Promise<{ status: string; added: number }> {
-  const { data, error } = await supabase.functions.invoke('fetch-menu', { body: { restaurantId, website } });
+// Asks the fetch-menu function to read the restaurant's menu from its website (or,
+// for a chain, the chain's menu page). The function itself decides whether a read is
+// due, so this is cheap to call whenever a restaurant is opened. Never throws.
+// Pass website when a diner typed it in because we couldn't find it ourselves, and
+// refresh when they tapped "Refresh menu".
+export async function fetchWebsiteMenu(restaurantId: string, website?: string, refresh = false): Promise<{ status: string; added: number }> {
+  const { data, error } = await supabase.functions.invoke('fetch-menu', { body: { restaurantId, website, refresh } });
   if (error || !data) return { status: 'error', added: 0 };
   return data as { status: string; added: number };
+}
+
+export const MENU_PROBLEMS = ['Dishes are missing', "Lists dishes they don't serve", 'Prices are wrong', "It's not this restaurant's menu"];
+
+// "Something wrong with this menu?": the Foodalise team sees these in menu_reports_to_check.
+export async function reportMenu(restaurantId: string, problem: string) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Please sign in again.');
+  const { error } = await supabase.from('menu_reports').insert({ reporter_id: user.id, restaurant_id: restaurantId, problem });
+  if (error) throw new Error("Couldn't send that. Check your connection and try again.");
 }

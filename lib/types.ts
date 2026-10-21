@@ -22,6 +22,8 @@ export type Restaurant = {
   hygiene_rating: string | null;
   menu_source: 'none' | 'chain' | 'website' | 'users';
   website?: string | null;
+  chain_slug?: string | null;
+  menu_checked_at?: string | null;
 };
 
 // Select string shared by the feed and profile so both get the same shape.
