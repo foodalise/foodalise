@@ -2,7 +2,8 @@
 // dishes to the restaurant in Foodalise. The app calls this the first time someone
 // opens a restaurant that has no menu; each restaurant is tried at most once a month.
 //
-//   POST { restaurantId: string } -> { status: string, added: number }
+//   POST { restaurantId: string, website?: string } -> { status: string, added: number }
+//   website: the restaurant's site, typed in by a diner when we couldn't find it.
 //
 // Websites come from OpenStreetMap (free), then (only if SEARCH_MONTHLY_CAP > 0) a web search by Claude (about 1p
 // each, capped per month). If GOOGLE_PLACES_API_KEY is set, Google Places is tried
@@ -22,7 +23,7 @@ const OVERPASS_SERVERS = ['https://overpass-api.de/api/interpreter', 'https://ov
 const NOT_OWN_SITE = ['deliveroo.co.uk', 'ubereats.com', 'just-eat.co.uk', 'tripadvisor.co.uk', 'tripadvisor.com', 'facebook.com', 'instagram.com', 'google.com', 'yelp.co.uk', 'yelp.com', 'opentable.co.uk', 'opentable.com', 'thefork.co.uk', 'tiktok.com', 'x.com', 'twitter.com', 'foodhygiene.food.gov.uk', 'ratings.food.gov.uk', 'restaurantguru.com', 'menulist.menu', 'sirved.com', 'hungryhouse.co.uk', 'yell.com', 'squaremeal.co.uk', 'timeout.com'];
 const USER_AGENT = 'FoodaliseMenuReader/1.0 (reads public restaurant menus)';
 const MAX_TEXT_CHARS = 80_000;
-const MAX_PDF_BYTES = 5 * 1024 * 1024;
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
 const MENU_SCHEMA = {
   type: 'object',
@@ -72,6 +73,16 @@ function sameName(a: string, b: string) {
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 10_000) {
   return await fetch(url, { ...init, signal: AbortSignal.timeout(ms), headers: { 'User-Agent': USER_AGENT, ...(init.headers ?? {}) } });
+}
+
+// A web address a diner typed: public http(s) only, with a dot in the host name.
+function cleanWebsite(input: unknown) {
+  if (typeof input !== 'string' || !input.trim()) return null;
+  try {
+    const url = new URL(/^https?:\/\//i.test(input.trim()) ? input.trim() : `https://${input.trim()}`);
+    if (!/^https?:$/.test(url.protocol) || !url.hostname.includes('.') || /^[\d.]+$/.test(url.hostname) || url.hostname.endsWith('.local')) return null;
+    return isOwnSite(url.href) ? url.href : null;
+  } catch { return null; }
 }
 
 function isOwnSite(url: string) {
@@ -251,8 +262,10 @@ Deno.serve(async (req) => {
   const { data: { user } } = await admin.auth.getUser(token);
   if (!user) return json({ error: 'Please sign in again.' }, 401);
 
-  const { restaurantId } = await req.json().catch(() => ({}));
+  const { restaurantId, website: typed } = await req.json().catch(() => ({}));
   if (typeof restaurantId !== 'string') return json({ error: 'Missing restaurant.' }, 400);
+  const given = cleanWebsite(typed);
+  if (typed && !given) return json({ status: 'bad_website', added: 0 });
 
   const { data: r } = await admin.from('restaurants')
     .select('id, name, address, postcode, latitude, longitude, website, menu_source').eq('id', restaurantId).single();
@@ -260,7 +273,7 @@ Deno.serve(async (req) => {
 
   // Each restaurant is tried again only after a wait, whoever opens it.
   const { data: last } = await admin.from('menu_fetches').select('status, attempted_at').eq('restaurant_id', r.id).maybeSingle();
-  if (last && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {
+  if (last && !given && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {
     return json({ status: last.status, added: 0 });
   }
   const since = new Date(Date.now() - 864e5).toISOString();
@@ -275,13 +288,12 @@ Deno.serve(async (req) => {
   };
 
   try {
-    let website: string | null = r.website;
+    let website: string | null = given ?? r.website;
     if (!website && r.latitude != null && r.longitude != null) website = await websiteFromOsm(r.name, r.latitude, r.longitude);
     if (!website) website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
     if (!website) website = await websiteFromGoogle(admin, r.name, r.postcode, r.latitude, r.longitude);
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
-    if (!r.website) await admin.from('restaurants').update({ website }).eq('id', r.id);
 
     const home = await getPage(website);
     if (!home) return await finish('unreadable', 0, website);
@@ -306,7 +318,10 @@ Deno.serve(async (req) => {
 
     const { error } = await admin.from('dishes').insert(rows);
     if (error) throw error;
-    if (r.menu_source === 'none' || r.menu_source === 'users') await admin.from('restaurants').update({ menu_source: 'website' }).eq('id', r.id);
+    // Only remember the website once a menu was actually read from it.
+    const update: Record<string, string> = website !== r.website ? { website } : {};
+    if (r.menu_source === 'none' || r.menu_source === 'users') update.menu_source = 'website';
+    if (Object.keys(update).length) await admin.from('restaurants').update(update).eq('id', r.id);
     return await finish('done', rows.length, website);
   } catch (e) {
     console.error('fetch-menu failed', r.id, e);

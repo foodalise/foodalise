@@ -28,8 +28,9 @@ export async function snapMenu(restaurantId: string, fromCamera: boolean): Promi
 // Asks the fetch-menu function to find the restaurant's own website and read the
 // menu from it. Each restaurant is only tried once a month, so this is cheap to
 // call whenever a restaurant without a menu is opened. Never throws.
-export async function fetchWebsiteMenu(restaurantId: string): Promise<{ status: string; added: number }> {
-  const { data, error } = await supabase.functions.invoke('fetch-menu', { body: { restaurantId } });
+// Pass website when a diner typed it in because we couldn't find it ourselves.
+export async function fetchWebsiteMenu(restaurantId: string, website?: string): Promise<{ status: string; added: number }> {
+  const { data, error } = await supabase.functions.invoke('fetch-menu', { body: { restaurantId, website } });
   if (error || !data) return { status: 'error', added: 0 };
   return data as { status: string; added: number };
 }
