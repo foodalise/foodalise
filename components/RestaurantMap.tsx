@@ -19,13 +19,26 @@ export const RestaurantMap = forwardRef<RestaurantMapHandle, Props>(function Res
   { restaurants, selectedId, showUser, onSelect, onRegionChange }, ref) {
   const t = useTheme();
   const map = useRef<MapView>(null);
-  useImperativeHandle(ref, () => ({ moveTo: (region) => map.current?.animateToRegion(region, 400) }));
+  // A move asked for before the map has loaded is ignored by the map, so hold it until it's ready.
+  const ready = useRef(false);
+  const pending = useRef<Region | null>(null);
+  useImperativeHandle(ref, () => ({
+    moveTo: (region) => {
+      if (ready.current) map.current?.animateToRegion(region, 400);
+      else pending.current = region;
+    },
+  }));
 
   return (
     <MapView
       ref={map}
       style={StyleSheet.absoluteFill}
       initialRegion={LONDON}
+      onMapReady={() => {
+        ready.current = true;
+        if (pending.current) map.current?.animateToRegion(pending.current, 0);
+        pending.current = null;
+      }}
       showsUserLocation={showUser}
       showsPointsOfInterests={false}
       onRegionChangeComplete={onRegionChange}
