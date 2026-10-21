@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LogoSymbol, Wordmark } from '@/components/Logo';
 import { Button, Field } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
@@ -46,7 +47,10 @@ export default function SignIn() {
     <SafeAreaView style={{ flex: 1, backgroundColor: t.surface }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.brand, { color: t.ink }]}>foodalise<Text style={{ color: t.hi }}>.</Text></Text>
+          <View style={{ alignItems: 'flex-start', gap: 14 }}>
+            <LogoSymbol height={64} />
+            <Wordmark size={40} />
+          </View>
           <Text style={[styles.tagline, { color: t.muted }]}>Every dish you've tried, photographed and scored.</Text>
           <View style={styles.form}>
             {mode === 'up' ? (
@@ -77,7 +81,6 @@ export default function SignIn() {
 
 const styles = StyleSheet.create({
   wrap: { flexGrow: 1, justifyContent: 'center', padding: 24, gap: 8 },
-  brand: { fontSize: 34, fontWeight: '800', letterSpacing: -1 },
   tagline: { fontSize: 15, marginBottom: 24 },
   form: { gap: 12 },
 });
