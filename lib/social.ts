@@ -11,7 +11,7 @@ export async function setLiked(userId: string, reviewId: string, liked: boolean)
 }
 
 export async function loadComments(reviewId: string) {
-  const { data } = await supabase.from('review_comments').select('id, body, created_at, user_id, profiles(username)')
+  const { data } = await supabase.from('review_comments').select('id, body, created_at, user_id, profiles!review_comments_user_id_fkey(username)')
     .eq('review_id', reviewId).order('created_at').returns<Comment[]>();
   return data ?? [];
 }
