@@ -4,16 +4,22 @@
 //
 //   POST { restaurantId: string } -> { status: string, added: number }
 //
-// Websites come from OpenStreetMap (free). If GOOGLE_PLACES_API_KEY is set, Google
-// Places is tried as a fallback, capped to stay inside Google's free monthly allowance.
+// Websites come from OpenStreetMap (free), then a web search by Claude (about 1p
+// each, capped per month). If GOOGLE_PLACES_API_KEY is set, Google Places is tried
+// last, capped to stay inside Google's free monthly allowance.
 // Secrets: ANTHROPIC_API_KEY (required), GOOGLE_PLACES_API_KEY (optional).
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
-const RETRY_AFTER_DAYS = 30;
+// How long before a restaurant is tried again, by what happened last time.
+const RETRY_AFTER_DAYS: Record<string, number> = { done: 30, no_menu: 30, no_website: 14, unreadable: 7, error: 1, running: 0.01 };
 const DAILY_LIMIT = 30; // restaurants one person can trigger a day
 const GOOGLE_FREE_MONTHLY = 950; // Google gives 1,000 free website lookups a month; stay under it
+const SEARCH_MONTHLY_CAP = 500; // web searches a month, about 1p each
+const OVERPASS_SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+// Listing and delivery sites aren't the restaurant's own website.
+const NOT_OWN_SITE = ['deliveroo.co.uk', 'ubereats.com', 'just-eat.co.uk', 'tripadvisor.co.uk', 'tripadvisor.com', 'facebook.com', 'instagram.com', 'google.com', 'yelp.co.uk', 'yelp.com', 'opentable.co.uk', 'opentable.com', 'thefork.co.uk', 'tiktok.com', 'x.com', 'twitter.com', 'foodhygiene.food.gov.uk', 'ratings.food.gov.uk', 'restaurantguru.com', 'menulist.menu', 'sirved.com', 'hungryhouse.co.uk', 'yell.com', 'squaremeal.co.uk', 'timeout.com'];
 const USER_AGENT = 'FoodaliseMenuReader/1.0 (reads public restaurant menus)';
 const MAX_TEXT_CHARS = 80_000;
 const MAX_PDF_BYTES = 5 * 1024 * 1024;
@@ -68,29 +74,70 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 10_000
   return await fetch(url, { ...init, signal: AbortSignal.timeout(ms), headers: { 'User-Agent': USER_AGENT, ...(init.headers ?? {}) } });
 }
 
-// Free: OpenStreetMap's map data often lists a venue's website.
+function isOwnSite(url: string) {
+  try {
+    const host = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, '');
+    return !NOT_OWN_SITE.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch { return false; }
+}
+
+// Free: OpenStreetMap's map data often lists a venue's website. Food hygiene
+// locations are often the postcode's centre, so search a few hundred metres.
+// Public map servers are busy, so try the next one if one fails.
 async function websiteFromOsm(name: string, lat: number, lng: number) {
-  const query = `[out:json][timeout:10];nwr(around:150,${lat},${lng})["name"];out tags center 80;`;
-  const res = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
-    method: 'POST', body: new URLSearchParams({ data: query }),
-  }, 15_000);
-  if (!res.ok) return null;
-  const { elements } = await res.json() as { elements: { tags?: Record<string, string> }[] };
-  for (const el of elements) {
-    const site = el.tags?.website ?? el.tags?.['contact:website'];
-    if (site && el.tags?.name && sameName(name, el.tags.name)) return site;
+  const query = `[out:json][timeout:15];nwr(around:400,${lat},${lng})["name"];out tags center 300;`;
+  for (const server of OVERPASS_SERVERS) {
+    try {
+      const res = await fetchWithTimeout(server, { method: 'POST', body: new URLSearchParams({ data: query }) }, 20_000);
+      if (!res.ok) continue;
+      const { elements } = await res.json() as { elements: { tags?: Record<string, string> }[] };
+      for (const el of elements) {
+        const site = el.tags?.website ?? el.tags?.['contact:website'];
+        if (site && el.tags?.name && sameName(name, el.tags.name) && isOwnSite(site)) return site;
+      }
+      return null;
+    } catch (e) {
+      console.warn('overpass failed', server, e);
+    }
   }
   return null;
+}
+
+// Monthly counter kept in google_lookups, under its own key per service.
+async function underMonthlyCap(admin: SupabaseClient<any>, key: string, cap: number) {
+  const { data: used } = await admin.from('google_lookups').select('count').eq('month', key).maybeSingle();
+  if ((used?.count ?? 0) >= cap) return false;
+  await admin.from('google_lookups').upsert({ month: key, count: (used?.count ?? 0) + 1 });
+  return true;
+}
+
+// About 1p: Claude Haiku searches the web for the restaurant's own website.
+async function websiteFromSearch(admin: SupabaseClient<any>, name: string, address: string | null, postcode: string | null) {
+  if (!(await underMonthlyCap(admin, `search-${new Date().toISOString().slice(0, 7)}`, SEARCH_MONTHLY_CAP))) return null;
+  const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
+  const where = [address, postcode].filter(Boolean).join(', ');
+  const response = await client.messages.create({
+    model: 'claude-haiku-5-5',
+    max_tokens: 4000,
+    output_config: { effort: 'low' },
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2, user_location: { type: 'approximate', country: 'GB' } }],
+    messages: [{
+      role: 'user',
+      content: `Find the official website of the restaurant "${name}" at ${where || 'an address in the UK'}. ` +
+        'It must be the restaurant\'s own site, not a delivery app, review site or social media page. ' +
+        'Reply with only the website address, or NONE if it has no website of its own.',
+    }],
+  });
+  const text = response.content.filter((b) => b.type === 'text').map((b) => b.type === 'text' ? b.text : '').join(' ');
+  const url = text.match(/https?:\/\/[^\s)"'<>\]]+/i)?.[0] ?? text.match(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:co\.uk|com|uk|london|net|org|restaurant|cafe)\b[^\s)"'<>\]]*/i)?.[0];
+  return url && isOwnSite(url) ? url.replace(/[.,]+$/, '') : null;
 }
 
 // Optional fallback, capped below Google's free monthly allowance so it never bills.
 async function websiteFromGoogle(admin: SupabaseClient<any>, name: string, postcode: string | null, lat: number | null, lng: number | null) {
   const key = Deno.env.get('GOOGLE_PLACES_API_KEY');
   if (!key) return null;
-  const month = new Date().toISOString().slice(0, 7);
-  const { data: used } = await admin.from('google_lookups').select('count').eq('month', month).maybeSingle();
-  if ((used?.count ?? 0) >= GOOGLE_FREE_MONTHLY) return null;
-  await admin.from('google_lookups').upsert({ month, count: (used?.count ?? 0) + 1 });
+  if (!(await underMonthlyCap(admin, new Date().toISOString().slice(0, 7), GOOGLE_FREE_MONTHLY))) return null;
 
   const res = await fetchWithTimeout('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
@@ -103,7 +150,7 @@ async function websiteFromGoogle(admin: SupabaseClient<any>, name: string, postc
   });
   if (!res.ok) return null;
   const place = (await res.json()).places?.[0];
-  return place?.websiteUri && sameName(name, place.displayName?.text ?? '') ? place.websiteUri as string : null;
+  return place?.websiteUri && sameName(name, place.displayName?.text ?? '') && isOwnSite(place.websiteUri) ? place.websiteUri as string : null;
 }
 
 // Respect a site's robots.txt "Disallow" rules for all crawlers.
@@ -208,12 +255,12 @@ Deno.serve(async (req) => {
   if (typeof restaurantId !== 'string') return json({ error: 'Missing restaurant.' }, 400);
 
   const { data: r } = await admin.from('restaurants')
-    .select('id, name, postcode, latitude, longitude, website, menu_source').eq('id', restaurantId).single();
+    .select('id, name, address, postcode, latitude, longitude, website, menu_source').eq('id', restaurantId).single();
   if (!r) return json({ error: 'Restaurant not found.' }, 404);
 
-  // Each restaurant is tried at most once a month, whoever opens it.
+  // Each restaurant is tried again only after a wait, whoever opens it.
   const { data: last } = await admin.from('menu_fetches').select('status, attempted_at').eq('restaurant_id', r.id).maybeSingle();
-  if (last && Date.now() - new Date(last.attempted_at).getTime() < RETRY_AFTER_DAYS * 864e5) {
+  if (last && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {
     return json({ status: last.status, added: 0 });
   }
   const since = new Date(Date.now() - 864e5).toISOString();
@@ -230,6 +277,7 @@ Deno.serve(async (req) => {
   try {
     let website: string | null = r.website;
     if (!website && r.latitude != null && r.longitude != null) website = await websiteFromOsm(r.name, r.latitude, r.longitude);
+    if (!website) website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
     if (!website) website = await websiteFromGoogle(admin, r.name, r.postcode, r.latitude, r.longitude);
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
