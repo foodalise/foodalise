@@ -1,6 +1,12 @@
 // Finds a restaurant's own website, reads the menu on it with Claude, and adds the
-// dishes to the restaurant in Foodalise. The app calls this the first time someone
-// opens a restaurant that has no menu; each restaurant is tried at most once a month.
+// dishes to the restaurant in Foodalise. The app calls this when someone opens a
+// restaurant that has no menu, or whose menu is due a refresh:
+// - Chains: the chain's menu page (chain_menu_sources) is read at most once a month
+//   and copied to every branch, so one read updates them all.
+// - Independents: a website menu is re-read every two months.
+// Dishes that have dropped off a menu are hidden (on_menu = false), never deleted.
+// A re-read that finds far fewer dishes than before is ignored, in case the site was
+// half-loaded.
 //
 //   POST { restaurantId: string, website?: string } -> { status: string, added: number }
 //   website: the restaurant's site, typed in by a diner when we couldn't find it.
@@ -17,7 +23,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 // How long before a restaurant is tried again, by what happened last time.
-const RETRY_AFTER_DAYS: Record<string, number> = { done: 30, no_menu: 30, no_website: 14, unreadable: 7, error: 1, running: 0.01 };
+const RETRY_AFTER_DAYS: Record<string, number> = { done: 60, no_menu: 30, no_website: 14, unreadable: 7, error: 1, running: 0.01 };
 const DAILY_LIMIT = 30; // restaurants one person can trigger a day
 const GOOGLE_FREE_MONTHLY = 950; // Google gives 1,000 free website lookups a month; stay under it
 const SEARCH_MONTHLY_CAP = 0; // web searches a month, about 1p each; 0 keeps it free (Jay's choice)
@@ -29,6 +35,9 @@ const MAX_TEXT_CHARS = 80_000;
 const MAX_PDF_BYTES = 15 * 1024 * 1024;
 const MAX_PDF_CHARS_TOTAL = 24_000_000;
 const MAX_PAGES = 5; // homepage plus up to four menu pages or PDFs
+const CHAIN_REFRESH_DAYS = 30;
+const CHAIN_RETRY_DAYS = 3;
+const KEEP_IF_FEWER_THAN = 0.5; // a re-read must find at least half as many dishes as before
 
 const MENU_SCHEMA = {
   type: 'object',
@@ -302,6 +311,95 @@ async function readMenu(pages: Page[]): Promise<Dish[]> {
   return text && text.type === 'text' ? (JSON.parse(text.text).dishes as Dish[]) : [];
 }
 
+// Reads the menu from a website: the page itself and its menu links, then, if that
+// finds nothing, the page as a browser shows it. `reachable` is false if neither loaded.
+async function readWebsite(website: string): Promise<{ reachable: boolean; dishes: Dish[] }> {
+  const home = await getPage(website).catch(() => null);
+  const pages = home ? [home] : [];
+  const tried = new Set([website]);
+  // Follow menu links from the homepage, then one step further, since many sites
+  // keep their menus as PDFs on a separate "Menus" page.
+  let next = home ? menuLinks(home) : [];
+  for (let hop = 0; hop < 2 && next.length; hop++) {
+    const found: string[] = [];
+    for (const link of next) {
+      if (tried.has(link) || pages.length >= MAX_PAGES) continue;
+      tried.add(link);
+      const page = await getPage(link).catch(() => null);
+      if (!page) continue;
+      pages.push(page);
+      if (page.html) found.push(...menuLinks(page));
+    }
+    next = found;
+  }
+  let dishes = pages.length ? await readMenu(pages) : [];
+
+  // Nothing found: the menu may be drawn by JavaScript, so read it as a browser sees it.
+  let first: Page | null = null;
+  if (!dishes.length) {
+    const rendered: Page[] = [];
+    first = await getRenderedPage(website);
+    if (first) {
+      rendered.push(first);
+      for (const link of renderedMenuLinks(first)) {
+        const page = await getRenderedPage(link);
+        if (!page) continue;
+        rendered.push(page);
+        // A menu PDF linked from the rendered menu page is read directly.
+        for (const pdf of renderedPdfLinks(page).filter((u) => !tried.has(u)).slice(0, 2)) {
+          const doc = await getPage(pdf).catch(() => null);
+          if (doc) rendered.push(doc);
+        }
+      }
+      dishes = await readMenu(rendered);
+    }
+  }
+  return { reachable: !!(home || first), dishes: cleanDishes(dishes) };
+}
+
+// Tidied names and prices, each dish once.
+function cleanDishes(dishes: Dish[]): Dish[] {
+  const seen = new Set<string>();
+  const out: Dish[] = [];
+  for (const d of dishes) {
+    const name = d.name?.trim().replace(/\s+/g, ' ') ?? '';
+    if (name.length < 2 || name.length > 120 || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    const price = Number.isInteger(d.price_pence) && d.price_pence! >= 0 ? d.price_pence : null;
+    out.push({ name, section: d.section?.trim() || null, price_pence: price });
+  }
+  return out;
+}
+
+// Re-reads a chain's menu if it's due, and updates every branch. One read a month per chain.
+async function refreshChain(admin: SupabaseClient<any>, slug: string) {
+  const due = new Date(Date.now() - CHAIN_REFRESH_DAYS * 864e5).toISOString();
+  // Claim the chain so two people opening branches at once don't both read it.
+  const { data: claimed } = await admin.from('chain_menu_sources')
+    .update({ status: 'running', read_at: new Date().toISOString() })
+    .eq('chain_slug', slug).or(`read_at.is.null,read_at.lt.${due}`).select('menu_url');
+  if (!claimed?.length) return json({ status: 'fresh', added: 0 });
+
+  const finish = async (status: string, added = 0, found: number | null = null) => {
+    // A failed read is tried again after a few days rather than a month.
+    const readAt = status === 'done' ? new Date() : new Date(Date.now() - (CHAIN_REFRESH_DAYS - CHAIN_RETRY_DAYS) * 864e5);
+    await admin.from('chain_menu_sources').update({ status, dishes_found: found, read_at: readAt.toISOString() }).eq('chain_slug', slug);
+    return json({ status, added });
+  };
+  try {
+    const { reachable, dishes } = await readWebsite(claimed[0].menu_url);
+    if (!reachable) return await finish('unreadable');
+    const { count: before } = await admin.from('chain_dishes').select('*', { count: 'exact', head: true }).eq('chain_slug', slug);
+    if (!dishes.length || dishes.length < (before ?? 0) * KEEP_IF_FEWER_THAN) return await finish('no_menu', 0, dishes.length);
+    const { data: added, error } = await admin.rpc('sync_chain_menu', { slug, items: dishes });
+    if (error) throw error;
+    return await finish('done', added ?? 0, dishes.length);
+  } catch (e) {
+    console.error('chain refresh failed', slug, e);
+    return await finish('error');
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Use POST' }, 405);
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -316,8 +414,11 @@ Deno.serve(async (req) => {
   if (typed && !given) return json({ status: 'bad_website', added: 0 });
 
   const { data: r } = await admin.from('restaurants')
-    .select('id, name, address, postcode, latitude, longitude, website, menu_source').eq('id', restaurantId).single();
+    .select('id, name, address, postcode, latitude, longitude, website, menu_source, chain_slug').eq('id', restaurantId).single();
   if (!r) return json({ error: 'Restaurant not found.' }, 404);
+
+  // A chain branch gets the chain's menu, unless a diner typed in a website for it.
+  if (r.chain_slug && !given) return await refreshChain(admin, r.chain_slug);
 
   // Each restaurant is tried again only after a wait, whoever opens it.
   const { data: last } = await admin.from('menu_fetches').select('status, attempted_at').eq('restaurant_id', r.id).maybeSingle();
@@ -343,64 +444,42 @@ Deno.serve(async (req) => {
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
-    const home = await getPage(website).catch(() => null);
-    const pages = home ? [home] : [];
-    const tried = new Set([website]);
-    // Follow menu links from the homepage, then one step further, since many sites
-    // keep their menus as PDFs on a separate "Menus" page.
-    let next = home ? menuLinks(home) : [];
-    for (let hop = 0; hop < 2 && next.length; hop++) {
-      const found: string[] = [];
-      for (const link of next) {
-        if (tried.has(link) || pages.length >= MAX_PAGES) continue;
-        tried.add(link);
-        const page = await getPage(link).catch(() => null);
-        if (!page) continue;
-        pages.push(page);
-        if (page.html) found.push(...menuLinks(page));
-      }
-      next = found;
-    }
-    let dishes = pages.length ? await readMenu(pages) : [];
+    const { reachable, dishes } = await readWebsite(website);
+    if (!reachable) return await finish('unreadable', 0, website);
 
-    // Nothing found: the menu may be drawn by JavaScript, so read it as a browser sees it.
-    if (!dishes.length) {
-      const rendered: Page[] = [];
-      const first = await getRenderedPage(website);
-      if (first) {
-        rendered.push(first);
-        for (const link of renderedMenuLinks(first)) {
-          const page = await getRenderedPage(link);
-          if (!page) continue;
-          rendered.push(page);
-          // A menu PDF linked from the rendered menu page is read directly.
-          for (const pdf of renderedPdfLinks(page).filter((u) => !tried.has(u)).slice(0, 2)) {
-            const doc = await getPage(pdf).catch(() => null);
-            if (doc) rendered.push(doc);
-          }
-        }
-        dishes = await readMenu(rendered);
-      }
-      if (!home && !first) return await finish('unreadable', 0, website);
+    const { data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu').eq('restaurant_id', r.id);
+    const fromSite = (existing ?? []).filter((d) => d.source === 'website');
+    // Too few dishes compared with last time: probably a half-loaded page, so keep the menu we have.
+    if (!dishes.length || dishes.length < fromSite.filter((d) => d.on_menu).length * KEEP_IF_FEWER_THAN) {
+      return await finish('no_menu', 0, website);
     }
-    const { data: existing } = await admin.from('dishes').select('name').eq('restaurant_id', r.id);
-    const seen = new Set((existing ?? []).map((d) => d.name.toLowerCase()));
-    const rows = [];
-    for (const d of dishes) {
-      const name = d.name?.trim().replace(/\s+/g, ' ') ?? '';
-      if (name.length < 2 || name.length > 120 || seen.has(name.toLowerCase())) continue;
-      seen.add(name.toLowerCase());
-      const price = Number.isInteger(d.price_pence) && d.price_pence! >= 0 ? d.price_pence : null;
-      rows.push({ restaurant_id: r.id, name, section: d.section?.trim() || null, price_pence: price, source: 'website' });
-    }
-    if (!rows.length) return await finish('no_menu', 0, website);
 
-    const { error } = await admin.from('dishes').insert(rows);
-    if (error) throw error;
+    // Dishes already listed: show the ones still on the menu (with today's section and
+    // price), hide the website ones that have gone. Diners' own additions are left alone.
+    const byName = new Map(dishes.map((d) => [d.name.toLowerCase(), d]));
+    const gone = fromSite.filter((d) => d.on_menu && !byName.has(d.name.toLowerCase())).map((d) => d.id);
+    if (gone.length) await admin.from('dishes').update({ on_menu: false }).in('id', gone);
+    for (const d of existing ?? []) {
+      const now = byName.get(d.name.toLowerCase());
+      if (!now) continue;
+      const price = now.price_pence ?? d.price_pence;
+      if (!d.on_menu || now.section !== d.section || price !== d.price_pence) {
+        await admin.from('dishes').update({ on_menu: true, section: now.section, price_pence: price }).eq('id', d.id);
+      }
+    }
+    const known = new Set((existing ?? []).map((d) => d.name.toLowerCase()));
+    const rows = dishes.filter((d) => !known.has(d.name.toLowerCase()))
+      .map((d) => ({ restaurant_id: r.id, name: d.name, section: d.section, price_pence: d.price_pence, source: 'website' }));
+    if (rows.length) {
+      const { error } = await admin.from('dishes').insert(rows);
+      if (error) throw error;
+    }
+
     // Only remember the website once a menu was actually read from it.
-    const update: Record<string, string> = website !== r.website ? { website } : {};
+    const update: Record<string, string> = { menu_checked_at: new Date().toISOString() };
+    if (website !== r.website) update.website = website;
     if (r.menu_source === 'none' || r.menu_source === 'users') update.menu_source = 'website';
-    if (Object.keys(update).length) await admin.from('restaurants').update(update).eq('id', r.id);
+    await admin.from('restaurants').update(update).eq('id', r.id);
     return await finish('done', rows.length, website);
   } catch (e) {
     console.error('fetch-menu failed', r.id, e);

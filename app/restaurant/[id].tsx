@@ -1,17 +1,20 @@
 import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PhotoGallery, type GalleryPhoto } from '@/components/PhotoGallery';
 import { SnapMenuButton } from '@/components/SnapMenuButton';
 import { Button, Empty, Field, Label, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
-import { fetchWebsiteMenu } from '@/lib/menu';
+import { fetchWebsiteMenu, MENU_PROBLEMS, reportMenu } from '@/lib/menu';
 import { COURSES, courseOf } from '@/lib/menuOrder';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
-type DishRow = { id: string; name: string; section: string | null; price_pence: number | null; review_count: number; avg_rating: number | null };
+type DishRow = { id: string; name: string; section: string | null; price_pence: number | null; review_count: number; avg_rating: number | null; on_menu: boolean };
+
+// How old a menu can get before it's read again: chains monthly, website menus every two months.
+const REFRESH_DAYS = { chain: 30, website: 60 };
 type PhotoRow = {
   id: string; created_at: string; like_count: number; comment_count: number;
   dishes: { name: string } | null; review_photos: { storage_path: string; position: number }[];
@@ -35,17 +38,18 @@ export default function RestaurantScreen() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [dishes, setDishes] = useState<DishRow[] | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [website, setWebsite] = useState('');
   const [lookupNote, setLookupNote] = useState<string | null>(null);
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
 
   const loadDishes = useCallback(() => {
-    supabase.from('dishes').select('id, name, section, price_pence, review_count, avg_rating').eq('restaurant_id', id).order('name')
+    supabase.from('dishes').select('id, name, section, price_pence, review_count, avg_rating, on_menu').eq('restaurant_id', id).order('name')
       .returns<DishRow[]>().then(({ data }) => setDishes(data ?? []));
   }, [id]);
 
   const loadRestaurant = useCallback(() => {
-    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source, website').eq('id', id).single()
+    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source, website, chain_slug, menu_checked_at').eq('id', id).single()
       .then(({ data }) => setRestaurant(data));
   }, [id]);
 
@@ -68,8 +72,10 @@ export default function RestaurantScreen() {
     loadPhotos();
   }, [loadRestaurant, loadDishes, loadPhotos]);
 
+  const onMenu = dishes?.filter((d) => d.on_menu) ?? null;
+
   // No menu yet: try reading it from the restaurant's own website.
-  const needsMenu = restaurant?.menu_source === 'none' && dishes?.length === 0;
+  const needsMenu = restaurant?.menu_source === 'none' && onMenu?.length === 0;
   useEffect(() => {
     if (!needsMenu) return;
     let live = true;
@@ -85,6 +91,35 @@ export default function RestaurantScreen() {
     return () => { live = false; };
   }, [needsMenu, id, loadRestaurant, loadDishes]);
 
+  // A chain or website menu that's due a refresh is re-read quietly in the background.
+  const age = restaurant?.menu_checked_at ? (Date.now() - new Date(restaurant.menu_checked_at).getTime()) / 864e5 : Infinity;
+  const due = !!restaurant && !needsMenu && (
+    (!!restaurant.chain_slug && age > REFRESH_DAYS.chain) || (restaurant.menu_source === 'website' && age > REFRESH_DAYS.website));
+  useEffect(() => {
+    if (!due) return;
+    let live = true;
+    setChecking(true);
+    fetchWebsiteMenu(id).then(({ status }) => {
+      if (!live) return;
+      setChecking(false);
+      if (status === 'done') {
+        loadRestaurant();
+        loadDishes();
+      }
+    });
+    return () => { live = false; };
+  }, [due, id, loadRestaurant, loadDishes]);
+
+  function flagMenu() {
+    Alert.alert("What's wrong with the menu?", "We'll check it and update it.", [
+      ...MENU_PROBLEMS.map((problem) => ({
+        text: problem,
+        onPress: () => reportMenu(id, problem).then(() => Alert.alert('Thanks for letting us know.'), (e: Error) => Alert.alert(e.message)),
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  }
+
   const readTheirWebsite = async () => {
     setLookingUp(true);
     setLookupNote(null);
@@ -99,18 +134,21 @@ export default function RestaurantScreen() {
     }
   };
 
-  const list = dishes ?? [];
+  const list = onMenu ?? [];
+  // Dishes that have left the menu stay findable while they have reviews.
+  const retired = (dishes ?? []).filter((d) => !d.on_menu && d.review_count > 0);
   // Starters, mains, sides, desserts, drinks; within each, grouped by the menu's own sections.
   const courses = COURSES.map((course) => ({
     course,
     dishes: list.filter((d) => courseOf(d.section) === course)
       .sort((a, b) => (a.section ?? '').localeCompare(b.section ?? '') || a.name.localeCompare(b.name)),
   })).filter((c) => c.dishes.length);
+  if (retired.length) courses.push({ course: 'No longer on the menu' as (typeof COURSES)[number], dishes: retired });
 
   // Average over every review here, so a dish with more reviews counts for more.
-  const reviewCount = list.reduce((n, d) => n + d.review_count, 0);
+  const reviewCount = [...list, ...retired].reduce((n, d) => n + d.review_count, 0);
   const average = reviewCount
-    ? list.reduce((sum, d) => sum + (d.avg_rating != null ? Number(d.avg_rating) * d.review_count : 0), 0) / reviewCount
+    ? [...list, ...retired].reduce((sum, d) => sum + (d.avg_rating != null ? Number(d.avg_rating) * d.review_count : 0), 0) / reviewCount
     : null;
 
   return (
@@ -145,13 +183,13 @@ export default function RestaurantScreen() {
       ) : null}
       <Button title="Review a dish here" onPress={() => router.push({ pathname: '/review', params: { restaurantId: id } })} />
       {/* Only while there's no menu: once dishes are listed, a snap would just add near-duplicates. */}
-      {dishes?.length === 0 ? <SnapMenuButton restaurantId={id} onAdded={loadDishes} /> : null}
+      {onMenu?.length === 0 ? <SnapMenuButton restaurantId={id} onAdded={loadDishes} /> : null}
       {lookingUp ? (
         <View style={styles.looking}>
           <ActivityIndicator color={t.muted} />
           <Text style={{ color: t.muted }}>Looking for the menu on their website…</Text>
         </View>
-      ) : dishes?.length === 0 ? (
+      ) : onMenu?.length === 0 ? (
         <>
           <Empty title="No dishes yet" body="Snap the menu to add every dish, or add one when posting a review." />
           <View style={{ gap: 8 }}>
@@ -185,6 +223,15 @@ export default function RestaurantScreen() {
           ))}
         </View>
       ))}
+      {list.length ? (
+        <View style={{ gap: 6, marginTop: 8 }}>
+          <Text style={{ color: t.muted, fontSize: 12 }}>
+            {checking ? 'Checking for menu updates…'
+              : restaurant?.menu_checked_at ? `Menu updated ${new Date(restaurant.menu_checked_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}` : null}
+          </Text>
+          <Button variant="ghost" title="Something wrong with this menu?" onPress={flagMenu} />
+        </View>
+      ) : null}
       <Text style={{ color: t.muted, fontSize: 11, marginTop: 8 }}>
         Restaurant details and hygiene rating from the Food Standards Agency, under the Open Government Licence v3.0.
       </Text>
