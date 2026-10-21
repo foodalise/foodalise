@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Imports restaurants, cafés, takeaways and pubs for one local authority from the
-// Food Standards Agency's open hygiene-ratings API into the `restaurants` table.
+// Food Standards Agency's open hygiene-ratings API into the `restaurants` table,
+// then gives branches of known chains their chain's menu.
 //
 //   node scripts/import-fsa.mjs --list-authorities        # find an authority id
 //   node scripts/import-fsa.mjs --authority 197           # import that authority
@@ -65,6 +66,11 @@ async function importAuthority(authorityId) {
     }
   }
   console.log(`Done: ${total} places imported for authority ${authorityId}.`);
+
+  // Give branches of known chains (McDonald's, Nando's, ...) their chain's menu.
+  const { data: added, error } = await db.rpc('apply_chain_menus');
+  if (error) console.warn(`Couldn't add chain menus: ${error.message}`);
+  else console.log(`Chain menus: ${added} dishes added to chain branches.`);
 }
 
 const args = process.argv.slice(2);
