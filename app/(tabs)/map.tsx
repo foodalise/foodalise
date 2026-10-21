@@ -1,13 +1,31 @@
+import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { MapFilterSheet, type FilterKind } from '@/components/MapFilterSheet';
+import type { GalleryPhoto } from '@/components/PhotoGallery';
 import { RestaurantMap, type RestaurantMapHandle } from '@/components/RestaurantMap';
 import { Button, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
-import { distanceKm, formatDistance, restaurantsIn, type MapRestaurant, type Region } from '@/lib/places';
+import { DIETS, PRICE_LEVELS } from '@/lib/cuisines';
+import { openDirections, priceLabel } from '@/lib/directions';
+import { restaurantPhotos } from '@/lib/photos';
+import { distanceKm, formatDistance, NO_FILTERS, restaurantsIn, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
+import { photoUrl } from '@/lib/supabase';
+
+// What each filter button says, given what's chosen.
+function filterLabel(kind: FilterKind, f: MapFilters) {
+  const many = (list: string[], name: string) => (list.length ? (list.length === 1 ? list[0] : `${list[0]} +${list.length - 1}`) : name);
+  if (kind === 'cuisine') return many(f.cuisines, 'Cuisine');
+  if (kind === 'rating') return f.minRating != null ? `${f.minRating}+` : 'Rating';
+  if (kind === 'cost') return many(PRICE_LEVELS.filter((p) => f.prices.includes(p.level)).map((p) => p.label), 'Cost');
+  return many(DIETS.filter((d) => f.diets.includes(d.key)).map((d) => d.label), 'Dietary');
+}
+const isSet = (kind: FilterKind, f: MapFilters) =>
+  kind === 'cuisine' ? f.cuisines.length > 0 : kind === 'rating' ? f.minRating != null : kind === 'cost' ? f.prices.length > 0 : f.diets.length > 0;
 
 type Coords = { latitude: number; longitude: number };
 
@@ -19,7 +37,11 @@ export default function MapScreen() {
   const [restaurants, setRestaurants] = useState<MapRestaurant[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<MapFilters>(NO_FILTERS);
+  const [sheet, setSheet] = useState<FilterKind | null>(null);
+  const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const request = useRef(0);
+  const region = useRef<Region | null>(null);
 
   const locate = useCallback(async () => {
     const { granted } = await Location.requestForegroundPermissionsAsync();
@@ -36,19 +58,32 @@ export default function MapScreen() {
   // Every time the Map tab is opened, centre it on where you are.
   useFocusEffect(useCallback(() => { locate().catch(() => setLocationOff(true)); }, [locate]));
 
-  const load = useCallback(async (region: Region) => {
+  const load = useCallback(async (area: Region) => {
+    region.current = area;
     const id = ++request.current;
     try {
-      const found = await restaurantsIn(region);
+      const found = await restaurantsIn(area, filters);
       if (id !== request.current) return;
       setRestaurants(found);
       setError(null);
     } catch (e) {
       if (id === request.current) setError(e instanceof Error ? e.message : 'Could not load restaurants');
     }
-  }, []);
+  }, [filters]);
+
+  // Changing a filter reloads the part of the map you're looking at.
+  useEffect(() => { if (region.current) load(region.current); }, [load]);
 
   const selected = restaurants.find((r) => r.id === selectedId) ?? null;
+
+  // Up to six photos of the selected restaurant's food, for a quick look.
+  useEffect(() => {
+    setPhotos([]);
+    if (!selectedId) return;
+    let live = true;
+    restaurantPhotos(selectedId, 60).then((p) => { if (live) setPhotos(p.slice(0, 6)); });
+    return () => { live = false; };
+  }, [selectedId]);
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
@@ -62,11 +97,24 @@ export default function MapScreen() {
       />
 
       <View style={styles.top} pointerEvents="box-none">
-        {locationOff || error ? (
-          <Text style={[styles.banner, { backgroundColor: t.surface, color: error ? t.lo : t.muted }]}>
-            {error ?? 'Location is off, so the map starts in central London.'}
-          </Text>
-        ) : <View />}
+        <View style={{ flex: 1, gap: 8 }} pointerEvents="box-none">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {(['cuisine', 'rating', 'cost', 'dietary'] as const).map((kind) => {
+              const on = isSet(kind, filters);
+              return (
+                <Pressable key={kind} accessibilityRole="button" onPress={() => setSheet(kind)}
+                  style={[styles.filter, { backgroundColor: on ? t.ink : t.surface, borderColor: on ? t.ink : t.line }]}>
+                  <Text style={{ color: on ? t.surface : t.ink, fontWeight: '600', fontSize: 13 }}>{filterLabel(kind, filters)} ▾</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          {locationOff || error ? (
+            <Text style={[styles.banner, { backgroundColor: t.surface, color: error ? t.lo : t.muted }]}>
+              {error ?? 'Location is off, so the map starts in central London.'}
+            </Text>
+          ) : null}
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Show where I am"
@@ -80,9 +128,12 @@ export default function MapScreen() {
         <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.line }]}>
           <View style={styles.cardRow}>
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.name, { color: t.ink }]} numberOfLines={1}>{selected.name}</Text>
+              <Text style={[styles.name, { color: t.ink }]} numberOfLines={1}>
+                {selected.name}
+                {selected.cuisine ? <Text style={[styles.cuisine, { color: t.muted }]}>  {selected.cuisine}</Text> : null}
+              </Text>
               <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>
-                {[me ? formatDistance(distanceKm(me, selected)) : null, selected.address, selected.postcode].filter(Boolean).join(' · ')}
+                {[me ? formatDistance(distanceKm(me, selected)) : null, priceLabel(selected.price_level), selected.address, selected.postcode].filter(Boolean).join(' · ')}
               </Text>
               <Text style={{ color: t.muted, fontSize: 13 }}>
                 {selected.reviews ? `${selected.reviews} review${selected.reviews === 1 ? '' : 's'}` : 'No reviews yet'}
@@ -90,9 +141,28 @@ export default function MapScreen() {
             </View>
             <ScorePill rating={selected.rating} />
           </View>
-          <Button title="See the menu" onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: selected.id } })} />
+          {photos.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+              {photos.map((p) => (
+                <Pressable key={p.path} accessibilityLabel={p.dish}
+                  onPress={() => router.push({ pathname: '/comments/[id]', params: { id: p.reviewId } })}>
+                  <Image source={{ uri: photoUrl(p.path) }} style={[styles.photo, { backgroundColor: t.line }]} contentFit="cover" />
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Button title="See the menu" onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: selected.id } })} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button title="Directions" variant="ghost" onPress={() => openDirections(selected)} />
+            </View>
+          </View>
         </View>
       ) : null}
+
+      <MapFilterSheet kind={sheet} filters={filters} onChange={setFilters} onClose={() => setSheet(null)} />
     </View>
   );
 }
@@ -104,4 +174,7 @@ const styles = StyleSheet.create({
   card: { position: 'absolute', left: 12, right: 12, bottom: 12, padding: 14, gap: 12, borderRadius: 16, borderWidth: 1 },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   name: { fontWeight: '800', fontSize: 17 },
+  cuisine: { fontWeight: '400', fontSize: 14, fontStyle: 'italic' },
+  filter: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  photo: { width: 84, height: 84, borderRadius: 10 },
 });

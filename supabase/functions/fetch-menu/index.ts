@@ -45,9 +45,20 @@ const REFRESH_EVERY_DAYS = 30; // any restaurant's menu, refreshed by diners at 
 const CHAIN_RETRY_DAYS = 3;
 const KEEP_IF_FEWER_THAN = 0.5; // a re-read must find at least half as many dishes as before
 
+// Same list as lib/cuisines.ts in the app.
+const CUISINES = [
+  'African', 'American', 'Bakery', 'British', 'Burgers', 'Cafe', 'Caribbean', 'Chicken', 'Chinese', 'Desserts',
+  'Fish & Chips', 'French', 'Greek', 'Healthy', 'Indian', 'Italian', 'Japanese', 'Kebab', 'Korean', 'Latin American',
+  'Mediterranean', 'Mexican', 'Middle Eastern', 'Pan-Asian', 'Pizza', 'Portuguese', 'Pub', 'Sandwiches', 'Seafood',
+  'Spanish', 'Steak', 'Thai', 'Turkish', 'Vietnamese', 'Other',
+];
+const DISH_DIETS = ['vegetarian', 'vegan', 'gluten_free'];
+
 const MENU_SCHEMA = {
   type: 'object',
   properties: {
+    cuisine: { type: 'string', enum: CUISINES },
+    halal: { type: 'boolean' },
     dishes: {
       type: 'array',
       items: {
@@ -56,13 +67,21 @@ const MENU_SCHEMA = {
           section: { type: ['string', 'null'] },
           name: { type: 'string' },
           price_pence: { type: ['integer', 'null'] },
+          diets: { type: 'array', items: { type: 'string', enum: DISH_DIETS } },
         },
-        required: ['section', 'name', 'price_pence'],
+        required: ['section', 'name', 'price_pence', 'diets'],
         additionalProperties: false,
       },
     },
   },
-  required: ['dishes'],
+  required: ['cuisine', 'halal', 'dishes'],
+  additionalProperties: false,
+};
+
+const CUISINE_SCHEMA = {
+  type: 'object',
+  properties: { cuisine: { type: 'string', enum: CUISINES } },
+  required: ['cuisine'],
   additionalProperties: false,
 };
 
@@ -70,10 +89,15 @@ const PROMPT = `Above are pages from a restaurant's own website. List every dish
 - name: the dish name as printed, in normal capitalisation (e.g. "Chicken Katsu Curry", not "CHICKEN KATSU CURRY"). Leave out descriptions and ingredients.
 - section: the menu heading it sits under (e.g. "Starters", "Mains"), or null if there is none.
 - price_pence: the price in pence (£12.50 -> 1250), or null if no price is shown. If there are several sizes, use the smallest.
+- diets: "vegetarian", "vegan" or "gluten_free" only where the menu marks the dish that way (e.g. V, VG, GF). Don't guess.
+- cuisine: the kind of food the restaurant serves overall, or "Other" if none fits.
+- halal: true only if the pages say the food is halal.
 Only include things a customer can order. Ignore opening times, events, allergy notes and navigation text.
 If the pages don't contain a menu, return an empty list.`;
 
-type Dish = { section: string | null; name: string; price_pence: number | null };
+type Dish = { section: string | null; name: string; price_pence: number | null; diets: string[] };
+type Menu = { dishes: Dish[]; cuisine: string | null; halal: boolean }; // cuisine is null only when nothing was read
+const NO_MENU: Menu = { dishes: [], cuisine: null, halal: false };
 type Page = { url: string; text?: string; pdf?: string; pdfUrl?: string; html?: string };
 
 declare const EdgeRuntime: { waitUntil(work: Promise<unknown>): void };
@@ -300,7 +324,7 @@ async function downloadPdf(url: string): Promise<Page | null> {
   return { url, pdf: btoa(bin) };
 }
 
-async function readMenu(pages: Page[]): Promise<Dish[]> {
+async function readMenu(pages: Page[]): Promise<Menu> {
   try {
     return await askClaude(pages);
   } catch (e) {
@@ -311,7 +335,7 @@ async function readMenu(pages: Page[]): Promise<Dish[]> {
   }
 }
 
-async function askClaude(pages: Page[]): Promise<Dish[]> {
+async function askClaude(pages: Page[]): Promise<Menu> {
   const content: Anthropic.ContentBlockParam[] = [];
   let chars = 0;
   let pdfChars = 0;
@@ -327,7 +351,7 @@ async function askClaude(pages: Page[]): Promise<Dish[]> {
       content.push({ type: 'text', text: `Page: ${p.url}\n\n${text}` });
     }
   }
-  if (!content.length) return [];
+  if (!content.length) return NO_MENU;
   content.push({ type: 'text', text: PROMPT });
 
   // Claude Haiku 5.5: the lowest-cost model, which is plenty for reading a menu.
@@ -338,14 +362,29 @@ async function askClaude(pages: Page[]): Promise<Dish[]> {
     output_config: { effort: 'low', format: { type: 'json_schema', schema: MENU_SCHEMA } },
     messages: [{ role: 'user', content }],
   });
-  if (response.stop_reason === 'refusal') return [];
+  if (response.stop_reason === 'refusal') return NO_MENU;
   const text = response.content.find((b) => b.type === 'text');
-  return text && text.type === 'text' ? (JSON.parse(text.text).dishes as Dish[]) : [];
+  return text && text.type === 'text' ? (JSON.parse(text.text) as Menu) : NO_MENU;
+}
+
+// Files a restaurant under a cuisine from its name and dishes, for menus that came
+// from somewhere other than a website read (chains are set by hand, snapped menus).
+async function classifyCuisine(name: string, dishes: string[]): Promise<string> {
+  const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
+  const response = await client.messages.create({
+    model: 'claude-haiku-5-5',
+    max_tokens: 200,
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: CUISINE_SCHEMA } },
+    messages: [{ role: 'user', content: `Restaurant: ${name}\nDishes: ${dishes.join('; ')}\n\nWhich cuisine is this restaurant? Use "Other" if none fits.` }],
+  });
+  const text = response.content.find((b) => b.type === 'text');
+  const cuisine = text && text.type === 'text' ? JSON.parse(text.text).cuisine : null;
+  return CUISINES.includes(cuisine) ? cuisine : 'Other';
 }
 
 // Reads the menu from a website: the page itself and its menu links, then, if that
 // finds nothing, the page as a browser shows it. `reachable` is false if neither loaded.
-async function readWebsite(website: string): Promise<{ reachable: boolean; dishes: Dish[] }> {
+async function readWebsite(website: string): Promise<{ reachable: boolean } & Menu> {
   const home = await getPage(website).catch(() => null);
   const pages = home ? [home] : [];
   const tried = new Set([website]);
@@ -364,11 +403,11 @@ async function readWebsite(website: string): Promise<{ reachable: boolean; dishe
     }
     next = found;
   }
-  let dishes = pages.length ? await readMenu(pages) : [];
+  let menu = pages.length ? await readMenu(pages) : NO_MENU;
 
   // Nothing found: the menu may be drawn by JavaScript, so read it as a browser sees it.
   let first: Page | null = null;
-  if (!dishes.length) {
+  if (!menu.dishes.length) {
     const rendered: Page[] = [];
     first = await getRenderedPage(website);
     if (first) {
@@ -383,10 +422,10 @@ async function readWebsite(website: string): Promise<{ reachable: boolean; dishe
           if (doc) rendered.push(doc);
         }
       }
-      dishes = await readMenu(rendered);
+      menu = await readMenu(rendered);
     }
   }
-  return { reachable: !!(home || first), dishes: cleanDishes(dishes) };
+  return { reachable: !!(home || first), ...menu, dishes: cleanDishes(menu.dishes) };
 }
 
 // Tidied names and prices, each dish once.
@@ -398,7 +437,8 @@ function cleanDishes(dishes: Dish[]): Dish[] {
     if (name.length < 2 || name.length > 120 || seen.has(name.toLowerCase())) continue;
     seen.add(name.toLowerCase());
     const price = Number.isInteger(d.price_pence) && d.price_pence! >= 0 ? d.price_pence : null;
-    out.push({ name, section: d.section?.trim() || null, price_pence: price });
+    const diets = (d.diets ?? []).filter((x) => DISH_DIETS.includes(x));
+    out.push({ name, section: d.section?.trim() || null, price_pence: price, diets });
   }
   return out;
 }
@@ -445,15 +485,30 @@ Deno.serve(async (req) => {
   const { data: { user } } = await admin.auth.getUser(token);
   if (!user) return json({ error: 'Please sign in again.' }, 401);
 
-  const { restaurantId, website: typed, refresh: wantsRefresh } = await req.json().catch(() => ({}));
+  const { restaurantId, website: typed, refresh: wantsRefresh, cuisine: wantsCuisine } = await req.json().catch(() => ({}));
   const refresh = wantsRefresh === true;
   if (typeof restaurantId !== 'string') return json({ error: 'Missing restaurant.' }, 400);
   const given = cleanWebsite(typed);
   if (typed && !given) return json({ status: 'bad_website', added: 0 });
 
   const { data: r } = await admin.from('restaurants')
-    .select('id, name, address, postcode, latitude, longitude, website, menu_source, chain_slug, menu_checked_at').eq('id', restaurantId).single();
+    .select('id, name, address, postcode, latitude, longitude, website, menu_source, chain_slug, menu_checked_at, cuisine').eq('id', restaurantId).single();
   if (!r) return json({ error: 'Restaurant not found.' }, 404);
+
+  // { cuisine: true }: file a restaurant that has dishes but no cuisine yet.
+  if (wantsCuisine === true) {
+    if (r.cuisine) return json({ status: 'done', cuisine: r.cuisine });
+    const { data: dishes } = await admin.from('dishes').select('name').eq('restaurant_id', r.id).eq('on_menu', true).limit(150);
+    if (!dishes?.length) return json({ status: 'no_menu', cuisine: null });
+    try {
+      const cuisine = await classifyCuisine(r.name, dishes.map((d) => d.name));
+      await admin.from('restaurants').update({ cuisine }).eq('id', r.id).is('cuisine', null);
+      return json({ status: 'done', cuisine });
+    } catch (e) {
+      console.error('cuisine failed', r.id, e);
+      return json({ status: 'error', cuisine: null });
+    }
+  }
 
   // Each diner gets one "Refresh menu" per restaurant. Only used up once a read actually starts.
   const claimRefresh = async () => {
@@ -498,7 +553,7 @@ Deno.serve(async (req) => {
 
 type RestaurantRow = {
   id: string; name: string; address: string | null; postcode: string | null; latitude: number | null; longitude: number | null;
-  website: string | null; menu_source: string;
+  website: string | null; menu_source: string; cuisine: string | null;
 };
 
 // Finds the restaurant's website, reads its menu and brings its dishes up to date.
@@ -512,10 +567,10 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
-    const { reachable, dishes } = await readWebsite(website);
+    const { reachable, dishes, cuisine, halal } = await readWebsite(website);
     if (!reachable) return await finish('unreadable', 0, website);
 
-    const { data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu').eq('restaurant_id', r.id);
+    const { data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu, diets').eq('restaurant_id', r.id);
     const fromSite = (existing ?? []).filter((d) => d.source === 'website');
     // Too few dishes compared with last time: probably a half-loaded page, so keep the menu we have.
     if (!dishes.length || dishes.length < fromSite.filter((d) => d.on_menu).length * KEEP_IF_FEWER_THAN) {
@@ -531,21 +586,27 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
       const now = byName.get(d.name.toLowerCase());
       if (!now) continue;
       const price = now.price_pence ?? d.price_pence;
-      if (!d.on_menu || now.section !== d.section || price !== d.price_pence) {
-        await admin.from('dishes').update({ on_menu: true, section: now.section, price_pence: price }).eq('id', d.id);
+      const diets = now.diets.length ? now.diets : d.diets;
+      if (!d.on_menu || now.section !== d.section || price !== d.price_pence || diets.join() !== d.diets.join()) {
+        await admin.from('dishes').update({ on_menu: true, section: now.section, price_pence: price, diets }).eq('id', d.id);
       }
     }
     const known = new Set((existing ?? []).map((d) => d.name.toLowerCase()));
     const rows = dishes.filter((d) => !known.has(d.name.toLowerCase()))
-      .map((d) => ({ restaurant_id: r.id, name: d.name, section: d.section, price_pence: d.price_pence, source: 'website' }));
+      .map((d) => ({ restaurant_id: r.id, name: d.name, section: d.section, price_pence: d.price_pence, diets: d.diets, source: 'website' }));
     if (rows.length) {
       const { error } = await admin.from('dishes').insert(rows);
       if (error) throw error;
     }
 
     // Only remember the website once a menu was actually read from it.
-    const update: Record<string, string> = { menu_checked_at: new Date().toISOString() };
+    const update: Record<string, string | string[]> = { menu_checked_at: new Date().toISOString() };
     if (website !== r.website) update.website = website;
+    if (!r.cuisine) update.cuisine = cuisine ?? await classifyCuisine(r.name, dishes.map((d) => d.name)).catch(() => 'Other');
+    if (halal) {
+      const { data: now } = await admin.from('restaurants').select('diets').eq('id', r.id).single();
+      update.diets = [...new Set([...(now?.diets ?? []), 'halal'])];
+    }
     if (r.menu_source === 'none' || r.menu_source === 'users') update.menu_source = 'website';
     await admin.from('restaurants').update(update).eq('id', r.id);
     return await finish('done', rows.length, website);

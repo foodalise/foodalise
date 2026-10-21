@@ -56,3 +56,10 @@ export async function reportMenu(restaurantId: string, problem: string) {
   const { error } = await supabase.from('menu_reports').insert({ reporter_id: user.id, restaurant_id: restaurantId, problem });
   if (error) throw new Error("Couldn't send that. Check your connection and try again.");
 }
+
+// Files a restaurant that has dishes but no cuisine under one (Italian, Thai…).
+// Returns the cuisine, or null if it couldn't be worked out. Never throws.
+export async function fileCuisine(restaurantId: string): Promise<string | null> {
+  const { data, error } = await supabase.functions.invoke('fetch-menu', { body: { restaurantId, cuisine: true } });
+  return error ? null : (data?.cuisine ?? null);
+}

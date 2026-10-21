@@ -6,8 +6,11 @@ import { PhotoGallery, type GalleryPhoto } from '@/components/PhotoGallery';
 import { SnapMenuButton } from '@/components/SnapMenuButton';
 import { Button, Empty, Field, Label, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
-import { fetchWebsiteMenu, MENU_PROBLEMS, reportMenu } from '@/lib/menu';
+import { DIETS } from '@/lib/cuisines';
+import { openDirections, priceLabel } from '@/lib/directions';
+import { fetchWebsiteMenu, fileCuisine, MENU_PROBLEMS, reportMenu } from '@/lib/menu';
 import { COURSES, courseOf } from '@/lib/menuOrder';
+import { restaurantPhotos } from '@/lib/photos';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
@@ -26,10 +29,6 @@ const REFRESH_RESULT: Record<string, string> = {
   unreadable: "Their website wouldn't let us in, so we've kept this menu.",
   limit: "You've refreshed lots of menus today. Try again tomorrow.",
   error: 'Something went wrong refreshing the menu. Try again later.',
-};
-type PhotoRow = {
-  id: string; created_at: string; like_count: number; comment_count: number; rating: number;
-  dishes: { name: string } | null; review_photos: { storage_path: string; position: number }[];
 };
 
 const LOOKUP_RESULT: Record<string, string> = {
@@ -61,22 +60,12 @@ export default function RestaurantScreen() {
   }, [id]);
 
   const loadRestaurant = useCallback(() => {
-    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source, website, chain_slug, menu_checked_at').eq('id', id).single()
+    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source, website, chain_slug, menu_checked_at, latitude, longitude, cuisine, price_level, diets').eq('id', id).single()
       .then(({ data }) => setRestaurant(data));
   }, [id]);
 
   // Every photo diners have posted here: most liked and commented on first, then newest.
-  const loadPhotos = useCallback(() => {
-    supabase.from('reviews').select('id, created_at, rating, like_count, comment_count, review_photos(storage_path, position), dishes!inner(name, restaurant_id)')
-      .eq('dishes.restaurant_id', id).order('created_at', { ascending: false }).limit(500)
-      .returns<PhotoRow[]>().then(({ data }) => {
-        const rows = [...(data ?? [])].sort((a, b) =>
-          (b.like_count + b.comment_count) - (a.like_count + a.comment_count) || b.created_at.localeCompare(a.created_at));
-        setPhotos(rows.flatMap((r) => [...r.review_photos].sort((a, b) => a.position - b.position).map((p) => ({
-          path: p.storage_path, reviewId: r.id, dish: r.dishes?.name ?? '', likes: r.like_count, comments: r.comment_count, rating: Number(r.rating),
-        }))));
-      });
-  }, [id]);
+  const loadPhotos = useCallback(() => { restaurantPhotos(id).then(setPhotos); }, [id]);
 
   useEffect(() => {
     loadRestaurant();
@@ -102,6 +91,13 @@ export default function RestaurantScreen() {
     });
     return () => { live = false; };
   }, [needsMenu, id, loadRestaurant, loadDishes]);
+
+  // Dishes but no cuisine yet (a snapped menu, or one read before cuisines existed): work it out.
+  const needsCuisine = !!restaurant && !restaurant.cuisine && (onMenu?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!needsCuisine) return;
+    fileCuisine(id).then((cuisine) => { if (cuisine) setRestaurant((r) => r && { ...r, cuisine }); });
+  }, [needsCuisine, id]);
 
   // A website menu that's two months old is re-read quietly in the background.
   const age = restaurant?.menu_checked_at ? (Date.now() - new Date(restaurant.menu_checked_at).getTime()) / 864e5 : Infinity;
@@ -194,7 +190,10 @@ export default function RestaurantScreen() {
       }} />
       {restaurant ? (
         <View style={{ gap: 8 }}>
-          <Text style={[styles.title, { color: t.ink }]}>{restaurant.name}</Text>
+          <Text style={[styles.title, { color: t.ink }]}>
+            {restaurant.name}
+            {restaurant.cuisine ? <Text style={[styles.cuisine, { color: t.muted }]}>  {restaurant.cuisine}</Text> : null}
+          </Text>
           <Text style={{ color: t.muted }}>{[restaurant.address, restaurant.postcode].filter(Boolean).join(', ')}</Text>
           <View style={styles.summary}>
             {average != null ? <ScorePill rating={average} /> : null}
@@ -207,7 +206,12 @@ export default function RestaurantScreen() {
               <Text style={{ color: t.ink, textDecorationLine: 'underline' }}>{restaurant.website.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')}</Text>
             </Pressable>
           ) : null}
+          <Button title="Directions" variant="ghost" onPress={() => openDirections(restaurant)} />
           <View style={styles.chips}>
+            {priceLabel(restaurant.price_level) ? <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>{priceLabel(restaurant.price_level)}</Text> : null}
+            {DIETS.filter((d) => restaurant.diets?.includes(d.key)).map((d) => (
+              <Text key={d.key} style={[styles.chip, { borderColor: t.line, color: t.muted }]}>{d.label} options</Text>
+            ))}
             {restaurant.hygiene_rating ? <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>Food hygiene {restaurant.hygiene_rating}</Text> : null}
             <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>{SOURCE_LABEL[restaurant.menu_source]}</Text>
           </View>
@@ -278,6 +282,7 @@ export default function RestaurantScreen() {
 
 const styles = StyleSheet.create({
   title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
+  cuisine: { fontSize: 15, fontWeight: '400', fontStyle: 'italic', letterSpacing: 0 },
   chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, fontSize: 12, fontWeight: '600', overflow: 'hidden' },
   course: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 14, paddingBottom: 6, borderBottomWidth: 2 },
