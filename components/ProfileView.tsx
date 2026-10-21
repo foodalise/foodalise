@@ -3,7 +3,8 @@ import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
-import { Button, Empty, Segmented } from '@/components/ui';
+import { PhotoStats } from '@/components/PhotoStats';
+import { Button, Empty, ReviewCard, Segmented } from '@/components/ui';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { deleteReview } from '@/lib/reviews';
@@ -156,7 +157,7 @@ export function ProfileView({ userId }: { userId: string }) {
         onPress={() => onTile(r)}
         style={{ width: cell, height: cell, borderRadius: 6, overflow: 'hidden', backgroundColor: t.bg }}>
         {p ? <Image source={{ uri: photoUrl(p) }} style={{ width: cell, height: cell }} contentFit="cover" /> : null}
-        <Text style={styles.badge}>{formatScore(r.rating)}</Text>
+        <PhotoStats likes={r.like_count} comments={r.comment_count} rating={Number(r.rating)} />
       </Pressable>
     );
   };
@@ -199,7 +200,8 @@ export function ProfileView({ userId }: { userId: string }) {
       ) : null}
       {reviews.length && isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
       {reviews.length && view === 'items' ? (
-        <View style={styles.grid}>{reviews.map(tile)}</View>
+        // Your own page is a photo grid; anyone else's reads like the Feed.
+        isMe ? <View style={styles.grid}>{reviews.map(tile)}</View> : <View style={{ gap: 16 }}>{reviews.map((r) => <ReviewCard key={r.id} review={r} />)}</View>
       ) : reviews.length ? (
         <View style={{ gap: 18 }}>
           {byRestaurant.map((g) => {
@@ -254,5 +256,4 @@ const styles = StyleSheet.create({
   link: { alignItems: 'center', paddingVertical: 8 },
   legal: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: 16 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  badge: { position: 'absolute', right: 4, bottom: 4, backgroundColor: 'rgba(10,12,10,0.72)', color: '#fff', fontWeight: '800', fontSize: 11, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' },
 });
