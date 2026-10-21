@@ -9,14 +9,16 @@ const WHITE = '#fff';
 
 // Likes in a heart, comments in a speech bubble and the score in a circle, all as
 // white outlines so they sit lightly on the photo, for its bottom-right corner.
-export function PhotoStats({ likes, comments, rating }: { likes: number; comments: number; rating: number }) {
+export function PhotoStats({ likes, comments, rating, showRating = true }: { likes: number; comments: number; rating: number; showRating?: boolean }) {
   return (
     <View style={styles.row} accessibilityLabel={`${likes} likes, ${comments} comments, scored ${formatScore(rating)}`}>
       <Shape symbol="heart" fallback={<View style={styles.ring} />}>{likes}</Shape>
       <Shape symbol="bubble.left" fallback={<View style={styles.bubble} />}>{comments}</Shape>
-      <View style={[styles.ring, styles.shadow]}>
-        <Text style={styles.num} numberOfLines={1} adjustsFontSizeToFit>{formatScore(rating)}</Text>
-      </View>
+      {showRating ? (
+        <View style={[styles.ring, styles.shadow]}>
+          <Text style={styles.num} numberOfLines={1} adjustsFontSizeToFit>{formatScore(rating)}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }

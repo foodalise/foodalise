@@ -79,3 +79,19 @@ export async function restaurantsNear(here: { latitude: number; longitude: numbe
   }
   return [];
 }
+
+// One food photo per restaurant (its most liked), for photo pins on the map.
+export async function coverPhotos(restaurantIds: string[]) {
+  const covers: Record<string, string> = {};
+  if (!restaurantIds.length) return covers;
+  const { data } = await supabase.from('reviews')
+    .select('like_count, review_photos(storage_path, position), dishes!inner(restaurant_id)')
+    .in('dishes.restaurant_id', restaurantIds).order('like_count', { ascending: false }).limit(400)
+    .returns<{ review_photos: { storage_path: string; position: number }[]; dishes: { restaurant_id: string } }[]>();
+  for (const r of data ?? []) {
+    const id = r.dishes.restaurant_id;
+    const photo = [...r.review_photos].sort((a, b) => a.position - b.position)[0];
+    if (photo && !covers[id]) covers[id] = photo.storage_path;
+  }
+  return covers;
+}

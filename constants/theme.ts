@@ -1,37 +1,41 @@
 import { useColorScheme } from '@/components/useColorScheme';
 
-// The Foodalise brand colours (from the logo sheet). Orange is left out on purpose.
+// The Foodalise brand colours: the logo's ink, food colours, and paprika orange
+// for buttons and highlights ("Ink & Paprika").
 export const brand = {
   ink: '#141414',
   white: '#FFFFFF',
+  paprika: '#FF6B2C',
   tomato: '#E5402F',
   basil: '#2FA54F',
   saffron: '#FFC233',
 };
 
-// Quiet ink-and-white UI; colour only on scores, from the logo's food. On white,
-// basil and saffron are darkened a little so score numbers stay readable.
+// Kept for reference; the app always uses the dark theme below.
 const light = {
   bg: '#F2F2EF',
   surface: brand.white,
+  card: brand.white,
   ink: brand.ink,
   muted: '#6E6E6A',
   line: '#E7E7E3',
-  accent: brand.ink,
+  accent: brand.paprika,
   accentInk: brand.white,
   hi: '#228A3E',
   mid: '#C98A00',
   lo: brand.tomato,
 };
 
+// Dark and premium: near-black screens, slightly lighter cards, paprika for actions.
 const dark: typeof light = {
   bg: '#0A0A0A',
-  surface: brand.ink,
-  ink: '#F2F2EF',
+  surface: '#111111',
+  card: '#1B1B1B',
+  ink: '#F5F5F2',
   muted: '#9A9A96',
   line: '#2A2A2A',
-  accent: '#F2F2EF',
-  accentInk: brand.ink,
+  accent: brand.paprika,
+  accentInk: brand.white,
   hi: brand.basil,
   mid: brand.saffron,
   lo: '#F0604F',
@@ -54,4 +58,10 @@ export function scoreColor(t: Theme, rating: number | null | undefined) {
 export function formatScore(rating: number | null | undefined) {
   if (rating == null) return '–';
   return (Math.round(rating * 10) / 10).toString();
+}
+
+// A colour at some opacity, e.g. tint('#2FA54F', 0.2) for a score badge's background.
+export function tint(hex: string, alpha: number) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }

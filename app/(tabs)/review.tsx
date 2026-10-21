@@ -22,7 +22,7 @@ type Scores = { taste: number; presentation: number; value: number };
 const START: Scores = { taste: 8, presentation: 8, value: 8 };
 const CRITERIA: { key: keyof Scores; label: string }[] = [
   { key: 'taste', label: 'Taste' },
-  { key: 'presentation', label: 'Presentation' },
+  { key: 'presentation', label: 'Looks' },
   { key: 'value', label: 'Value for money' },
 ];
 

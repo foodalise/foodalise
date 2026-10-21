@@ -1,6 +1,6 @@
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { Tabs } from 'expo-router';
-import type { ColorValue } from 'react-native';
+import { View, type ColorValue } from 'react-native';
 
 import { Wordmark } from '@/components/Logo';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
@@ -8,6 +8,16 @@ import { useTheme } from '@/constants/theme';
 
 function icon(name: SymbolViewProps['name']) {
   return ({ color }: { color: ColorValue }) => <SymbolView name={name} tintColor={color} size={24} />;
+}
+
+// The middle tab: an orange square with a plus, for reviewing a dish.
+function AddIcon() {
+  const t = useTheme();
+  return (
+    <View style={{ width: 56, height: 38, borderRadius: 14, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
+      <SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={t.accentInk} size={24} weight="bold" />
+    </View>
+  );
 }
 
 export default function TabLayout() {
@@ -18,18 +28,20 @@ export default function TabLayout() {
         tabBarActiveTintColor: t.ink,
         tabBarInactiveTintColor: t.muted,
         tabBarStyle: { backgroundColor: t.surface, borderTopColor: t.line },
+        tabBarLabelStyle: { fontWeight: '600' },
         headerStyle: { backgroundColor: t.surface },
-        headerTitleStyle: { fontWeight: '800', color: t.ink },
+        headerTitleStyle: { fontWeight: '800', color: t.ink, fontSize: 22 },
+        headerTitleAlign: 'left',
         headerShadowVisible: false,
         // Disable the static render of the header on web
         // to prevent a hydration error in React Navigation v6.
         headerShown: useClientOnlyValue(false, true),
       }}>
       <Tabs.Screen name="index" options={{ title: 'Feed', headerTitle: () => <Wordmark size={24} />, tabBarIcon: icon({ ios: 'house', android: 'home', web: 'home' }) }} />
-      <Tabs.Screen name="map" options={{ title: 'Map', headerTitle: 'Near you', tabBarIcon: icon({ ios: 'map', android: 'map', web: 'map' }) }} />
-      <Tabs.Screen name="review" options={{ title: 'Review', headerTitle: 'Review a dish', tabBarIcon: icon({ ios: 'plus.square', android: 'add_box', web: 'add_box' }) }} />
+      <Tabs.Screen name="map" options={{ title: 'Map', headerShown: false, tabBarIcon: icon({ ios: 'map', android: 'map', web: 'map' }) }} />
+      <Tabs.Screen name="review" options={{ title: 'Review', headerTitle: 'Review a dish', tabBarLabel: () => null, tabBarAccessibilityLabel: 'Review a dish', tabBarIcon: () => <AddIcon /> }} />
       <Tabs.Screen name="explore" options={{ title: 'Explore', tabBarIcon: icon({ ios: 'magnifyingglass', android: 'search', web: 'search' }) }} />
-      <Tabs.Screen name="profile" options={{ title: 'You', tabBarIcon: icon({ ios: 'person.crop.circle', android: 'account_circle', web: 'account_circle' }) }} />
+      <Tabs.Screen name="profile" options={{ title: 'You', headerShown: false, tabBarIcon: icon({ ios: 'person', android: 'person', web: 'person' }) }} />
     </Tabs>
   );
 }

@@ -10,8 +10,8 @@ export function Avatar({ username, path, size }: { username?: string | null; pat
   const round = { width: size, height: size, borderRadius: size / 2 };
   if (path) return <Image source={{ uri: photoUrl(path) }} style={[round, { backgroundColor: t.bg }]} contentFit="cover" />;
   return (
-    <View style={[round, { backgroundColor: t.ink, alignItems: 'center', justifyContent: 'center' }]}>
-      <Text style={{ color: t.surface, fontWeight: '800', fontSize: size * 0.4 }}>{username?.[0]?.toUpperCase() ?? ''}</Text>
+    <View style={[round, { backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }]}>
+      <Text style={{ color: t.accentInk, fontWeight: '800', fontSize: size * 0.4 }}>{username?.[0]?.toUpperCase() ?? ''}</Text>
     </View>
   );
 }
