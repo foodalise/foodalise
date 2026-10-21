@@ -15,9 +15,9 @@ import { openDirections, priceLabel } from '@/lib/directions';
 import { restaurantPhotos } from '@/lib/photos';
 import { distanceKm, formatDistance, NO_FILTERS, restaurantsIn, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
 import { photoUrl } from '@/lib/supabase';
-import { loadWishlist, type WishDish } from '@/lib/wishlist';
+import { loadWishlist, type WishPlace } from '@/lib/wishlist';
 
-const NEARBY_KM = 0.8; // how close a wishlist dish must be to get a nudge
+const NEARBY_KM = 0.8; // how close a wishlist restaurant must be to get a nudge
 
 // What each filter button says, given what's chosen.
 function filterLabel(kind: FilterKind, f: MapFilters) {
@@ -45,7 +45,7 @@ export default function MapScreen() {
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const request = useRef(0);
   const region = useRef<Region | null>(null);
-  const [wishlist, setWishlist] = useState<WishDish[]>([]);
+  const [wishlist, setWishlist] = useState<WishPlace[]>([]);
   const [dismissed, setDismissed] = useState<string | null>(null);
 
   const locate = useCallback(async () => {
@@ -66,14 +66,14 @@ export default function MapScreen() {
     loadWishlist().then(setWishlist);
   }, [locate]));
 
-  // The closest dish on your wishlist, if one is a short walk away.
+  // The closest restaurant on your wishlist, if one is a short walk away.
   const nearby = me ? wishlist
     .map((w) => {
-      const r = w.dishes?.restaurants;
-      return r?.latitude != null && r.longitude != null
+      const r = w.restaurant;
+      return r.latitude != null && r.longitude != null
         ? { w, km: distanceKm(me, { latitude: r.latitude, longitude: r.longitude }) } : null;
     })
-    .filter((x): x is { w: WishDish; km: number } => !!x && x.km <= NEARBY_KM && x.w.dish_id !== dismissed)
+    .filter((x): x is { w: WishPlace; km: number } => !!x && x.km <= NEARBY_KM && x.w.restaurant.id !== dismissed)
     .sort((a, b) => a.km - b.km)[0] ?? null : null;
 
   const load = useCallback(async (area: Region) => {
@@ -128,13 +128,21 @@ export default function MapScreen() {
             })}
           </ScrollView>
           {nearby && !selected ? (
-            <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/dish/[id]', params: { id: nearby.w.dish_id } })}
+            <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: nearby.w.restaurant.id } })}
               style={[styles.nudge, { backgroundColor: t.ink }]}>
               <Text style={{ color: t.surface, flex: 1, fontSize: 14 }}>
-                You're {formatDistance(nearby.km)} from {nearby.w.dishes?.restaurants?.name}.{' '}
-                <Text style={{ fontWeight: '800' }}>{nearby.w.dishes?.name}</Text> is on your Want to try list.
+                You're {formatDistance(nearby.km)} from{' '}
+                {nearby.w.dishes.length ? (
+                  <>
+                    {nearby.w.restaurant.name}. <Text style={{ fontWeight: '800' }}>{nearby.w.dishes[0].name}</Text>
+                    {nearby.w.dishes.length > 1 ? ` and ${nearby.w.dishes.length - 1} more` : ''}{' '}
+                    {nearby.w.dishes.length > 1 ? 'are' : 'is'} on your Want to try list.
+                  </>
+                ) : (
+                  <><Text style={{ fontWeight: '800' }}>{nearby.w.restaurant.name}</Text>, which is on your Want to try list.</>
+                )}
               </Text>
-              <Pressable accessibilityLabel="Dismiss" hitSlop={10} onPress={() => setDismissed(nearby.w.dish_id)}>
+              <Pressable accessibilityLabel="Dismiss" hitSlop={10} onPress={() => setDismissed(nearby.w.restaurant.id)}>
                 <Text style={{ color: t.surface, fontSize: 16, fontWeight: '800' }}>✕</Text>
               </Pressable>
             </Pressable>

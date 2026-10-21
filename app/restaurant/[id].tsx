@@ -1,4 +1,4 @@
-import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
+import { Link, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -9,10 +9,12 @@ import { useTheme } from '@/constants/theme';
 import { DIETS } from '@/lib/cuisines';
 import { openDirections, priceLabel } from '@/lib/directions';
 import { fetchWebsiteMenu, fileCuisine, MENU_PROBLEMS, reportMenu } from '@/lib/menu';
+import { useAuth } from '@/lib/auth';
 import { COURSES, courseOf } from '@/lib/menuOrder';
 import { restaurantPhotos } from '@/lib/photos';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
+import { restaurantWanted, setRestaurantWanted, wantToTryCount } from '@/lib/wishlist';
 
 type DishRow = { id: string; name: string; section: string | null; price_pence: number | null; review_count: number; avg_rating: number | null; on_menu: boolean };
 
@@ -53,6 +55,9 @@ export default function RestaurantScreen() {
   const [website, setWebsite] = useState('');
   const [lookupNote, setLookupNote] = useState<string | null>(null);
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
+  const me = useAuth().session?.user.id;
+  const [wanted, setWanted] = useState<{ place: boolean; dishes: number } | null>(null);
+  const [wantCount, setWantCount] = useState(0);
 
   const loadDishes = useCallback(() => {
     supabase.from('dishes').select('id, name, section, price_pence, review_count, avg_rating, on_menu').eq('restaurant_id', id).order('name')
@@ -67,11 +72,50 @@ export default function RestaurantScreen() {
   // Every photo diners have posted here: most liked and commented on first, then newest.
   const loadPhotos = useCallback(() => { restaurantPhotos(id).then(setPhotos); }, [id]);
 
+  // Whether it's on your Want to try list, and how many people want to try it.
+  const loadWanted = useCallback(() => {
+    restaurantWanted(id).then(setWanted);
+    wantToTryCount(id).then(setWantCount);
+  }, [id]);
+
   useEffect(() => {
     loadRestaurant();
     loadDishes();
     loadPhotos();
   }, [loadRestaurant, loadDishes, loadPhotos]);
+  useFocusEffect(loadWanted);
+
+  const onList = !!wanted && (wanted.place || wanted.dishes > 0);
+
+  async function toggleWanted() {
+    if (!me || !wanted) return;
+    const remove = async () => {
+      setWanted({ place: false, dishes: 0 });
+      try {
+        await setRestaurantWanted(me, id, false);
+      } catch (e) {
+        Alert.alert((e as Error).message);
+      }
+      loadWanted();
+    };
+    if (!onList) {
+      setWanted({ ...wanted, place: true });
+      try {
+        await setRestaurantWanted(me, id, true);
+      } catch (e) {
+        Alert.alert((e as Error).message);
+      }
+      loadWanted();
+    } else if (wanted.dishes) {
+      const n = wanted.dishes;
+      Alert.alert('Take this off your Want to try list?', `The ${n === 1 ? 'dish' : `${n} dishes`} you saved here will be removed too.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: remove },
+      ]);
+    } else {
+      remove();
+    }
+  }
 
   const onMenu = dishes?.filter((d) => d.on_menu) ?? null;
 
@@ -210,7 +254,19 @@ export default function RestaurantScreen() {
               <Text style={{ color: t.ink, textDecorationLine: 'underline' }}>{restaurant.website.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')}</Text>
             </Pressable>
           ) : null}
-          <Button title="Directions" variant="ghost" onPress={() => openDirections(restaurant)} />
+          <View style={styles.actions}>
+            <View style={{ flex: 1 }}>
+              <Button title={onList ? '✓ Want to try' : '+ Want to try'} variant="ghost" onPress={toggleWanted} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button title="Directions" variant="ghost" onPress={() => openDirections(restaurant)} />
+            </View>
+          </View>
+          {wantCount ? (
+            <Text style={{ color: t.muted, fontSize: 13 }}>
+              {wantCount === 1 ? '1 person wants' : `${wantCount} people want`} to try this place
+            </Text>
+          ) : null}
           <View style={styles.chips}>
             {priceLabel(restaurant.price_level) ? <Text style={[styles.chip, { borderColor: t.line, color: t.muted }]}>{priceLabel(restaurant.price_level)}</Text> : null}
             {DIETS.filter((d) => restaurant.diets?.includes(d.key)).map((d) => (
@@ -300,6 +356,7 @@ export default function RestaurantScreen() {
 }
 
 const styles = StyleSheet.create({
+  actions: { flexDirection: 'row', gap: 8 },
   title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
   order: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 },
   orderTitle: { fontSize: 17, fontWeight: '800' },
