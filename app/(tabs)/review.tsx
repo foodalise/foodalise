@@ -1,10 +1,11 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { OverallBar, ScoreSlider } from '@/components/ScoreSlider';
+import { SnapMenuButton } from '@/components/SnapMenuButton';
 import { Button, Empty, Field, Label } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
@@ -69,11 +70,12 @@ export default function Review() {
   }, [q, restaurant]);
 
   // Step 2: that restaurant's menu.
-  useEffect(() => {
+  const loadDishes = useCallback(() => {
     if (!restaurant) return;
     supabase.from('dishes').select('id, name, section').eq('restaurant_id', restaurant.id).order('name')
       .then(({ data }) => setDishes(data ?? []));
   }, [restaurant]);
+  useEffect(loadDishes, [loadDishes]);
 
   function reset() {
     setRestaurant(null); setDish(null); setQ(''); setPhoto(null); setScores(START); setBody(''); setError(null);
@@ -148,10 +150,11 @@ export default function Review() {
                 {d.section ? <Text style={{ color: t.muted, fontSize: 12 }}>{d.section}</Text> : null}
               </Pressable>
             ))}
-            {!dishes.length ? <Text style={{ color: t.muted }}>No menu for {restaurant.name} yet. Type the dish you ate above and add it.</Text> : null}
+            {!dishes.length ? <Text style={{ color: t.muted }}>No menu for {restaurant.name} yet. Snap the menu below, or type the dish you ate above and add it.</Text> : null}
             {term.length >= 2 && !dishes.some((d) => d.name.toLowerCase() === term) ? (
               <Button variant="ghost" title={`Add "${q.trim()}" to the menu`} onPress={addMissingDish} busy={busy} />
             ) : null}
+            <SnapMenuButton restaurantId={restaurant.id} onAdded={loadDishes} />
             <Button variant="ghost" title="Change restaurant" onPress={reset} />
           </>
         ) : null}
