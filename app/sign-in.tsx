@@ -25,11 +25,20 @@ export default function SignIn() {
       return;
     }
     setBusy(true);
+    if (mode === 'up') {
+      const { data: taken } = await supabase.from('profiles').select('id').eq('username', username).maybeSingle();
+      if (taken) {
+        setBusy(false);
+        setMessage(`@${username} is already taken. Try another username.`);
+        return;
+      }
+    }
     const { error, data } = mode === 'in'
       ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
       : await supabase.auth.signUp({ email: email.trim(), password, options: { data: { username } } });
     setBusy(false);
-    if (error) setMessage(error.message);
+    // Two people picking the same name at the same moment: the database refuses the second.
+    if (error) setMessage(/database error saving new user/i.test(error.message) ? `@${username} is already taken. Try another username.` : error.message);
     else if (mode === 'up' && !data.session) setMessage('Check your email to confirm your account, then sign in.');
   }
 

@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
 type Dish = { id: string; name: string; section: string | null };
-type Photo = { uri: string; mimeType?: string | null };
+type Photo = { uri: string; mimeType?: string | null; width?: number | null };
 type Scores = { taste: number; presentation: number; value: number };
 
 const START: Scores = { taste: 8, presentation: 8, value: 8 };
@@ -88,7 +88,7 @@ export default function Review() {
     if (!perm.granted) { setError(fromCamera ? 'Camera access is off. Turn it on in Settings to take a photo.' : 'Photo access is off. Turn it on in Settings to choose a photo.'); return; }
     const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 };
     const result = fromCamera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
-    if (!result.canceled && result.assets[0]) setPhoto({ uri: result.assets[0].uri, mimeType: result.assets[0].mimeType });
+    if (!result.canceled && result.assets[0]) setPhoto({ uri: result.assets[0].uri, mimeType: result.assets[0].mimeType, width: result.assets[0].width });
   }
 
   async function addMissingDish() {
