@@ -183,7 +183,10 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
           </Pressable>
           {dish.restaurants ? (
             <Pressable onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: dish.restaurants!.id } })} hitSlop={6}>
-              <Text style={{ color: t.muted, fontSize: 13 }}>at <Text style={{ color: t.ink, fontWeight: '600' }}>{dish.restaurants.name}</Text></Text>
+              <Text style={{ color: t.muted, fontSize: 13 }}>
+                at <Text style={{ color: t.ink, fontWeight: '600' }}>{dish.restaurants.name}</Text>
+                {dish.restaurants.cuisine ? <Text style={{ fontStyle: 'italic' }}> · {dish.restaurants.cuisine}</Text> : null}
+              </Text>
             </Pressable>
           ) : null}
         </View>

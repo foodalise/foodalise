@@ -9,31 +9,40 @@ export type MapRestaurant = {
   postcode: string | null;
   latitude: number;
   longitude: number;
+  cuisine: string | null;
+  price_level: number | null;
+  diets: string[];
   rating: number | null;
   reviews: number;
 };
+
+// What the map shows. Empty lists and a null rating mean "any".
+export type MapFilters = { cuisines: string[]; minRating: number | null; prices: number[]; diets: string[] };
+export const NO_FILTERS: MapFilters = { cuisines: [], minRating: null, prices: [], diets: [] };
 
 type Row = Omit<MapRestaurant, 'rating' | 'reviews'> & { dishes: { review_count: number; avg_rating: number | null }[] };
 
 // Central London, used until we know where the user is.
 export const LONDON: Region = { latitude: 51.5115, longitude: -0.13, latitudeDelta: 0.04, longitudeDelta: 0.04 };
 
-// Restaurants inside the visible part of the map, scored by the average of
-// every review across their dishes.
-export async function restaurantsIn(region: Region) {
+// Restaurants inside the visible part of the map that match the filters, scored by
+// the average of every review across their dishes.
+export async function restaurantsIn(region: Region, filters: MapFilters = NO_FILTERS) {
   const { latitude: lat, longitude: lng, latitudeDelta: dLat, longitudeDelta: dLng } = region;
-  const { data, error } = await supabase.from('restaurants')
-    .select('id, name, address, postcode, latitude, longitude, dishes(review_count, avg_rating)')
+  let query = supabase.from('restaurants')
+    .select('id, name, address, postcode, latitude, longitude, cuisine, price_level, diets, dishes(review_count, avg_rating)')
     .gte('latitude', lat - dLat / 2).lte('latitude', lat + dLat / 2)
-    .gte('longitude', lng - dLng / 2).lte('longitude', lng + dLng / 2)
-    .limit(200)
-    .returns<Row[]>();
+    .gte('longitude', lng - dLng / 2).lte('longitude', lng + dLng / 2);
+  if (filters.cuisines.length) query = query.in('cuisine', filters.cuisines);
+  if (filters.prices.length) query = query.in('price_level', filters.prices);
+  if (filters.diets.length) query = query.contains('diets', filters.diets);
+  const { data, error } = await query.limit(filters.minRating != null ? 400 : 200).returns<Row[]>();
   if (error) throw error;
   return (data ?? []).map(({ dishes, ...r }): MapRestaurant => {
     const reviews = dishes.reduce((n, d) => n + d.review_count, 0);
     const total = dishes.reduce((s, d) => s + (d.avg_rating ?? 0) * d.review_count, 0);
     return { ...r, reviews, rating: reviews ? total / reviews : null };
-  });
+  }).filter((r) => filters.minRating == null || (r.rating != null && r.rating >= filters.minRating));
 }
 
 export function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
