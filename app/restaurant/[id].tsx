@@ -1,7 +1,8 @@
 import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { SnapMenuButton } from '@/components/SnapMenuButton';
 import { Button, Empty, Label, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
@@ -19,12 +20,16 @@ export default function RestaurantScreen() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [dishes, setDishes] = useState<DishRow[]>([]);
 
-  useEffect(() => {
-    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source').eq('id', id).single()
-      .then(({ data }) => setRestaurant(data));
+  const loadDishes = useCallback(() => {
     supabase.from('dishes').select('id, name, section, price_pence, review_count, avg_rating').eq('restaurant_id', id).order('name')
       .returns<DishRow[]>().then(({ data }) => setDishes(data ?? []));
   }, [id]);
+
+  useEffect(() => {
+    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source').eq('id', id).single()
+      .then(({ data }) => setRestaurant(data));
+    loadDishes();
+  }, [id, loadDishes]);
 
   const sections = [...new Set(dishes.map((d) => d.section ?? 'Menu'))];
 
@@ -42,7 +47,8 @@ export default function RestaurantScreen() {
         </View>
       ) : null}
       <Button title="Review a dish here" onPress={() => router.push({ pathname: '/review', params: { restaurantId: id } })} />
-      {dishes.length === 0 ? <Empty title="No dishes yet" body="Be the first to add one when posting a review." /> : null}
+      <SnapMenuButton restaurantId={id} onAdded={loadDishes} />
+      {dishes.length === 0 ? <Empty title="No dishes yet" body="Snap the menu to add every dish, or add one when posting a review." /> : null}
       {sections.map((s) => (
         <View key={s} style={{ gap: 2 }}>
           <Label>{s}</Label>
