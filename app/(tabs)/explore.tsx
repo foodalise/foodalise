@@ -1,45 +1,122 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Empty, Field } from '@/components/ui';
+import { Empty, Field, Segmented } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
+import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
+type Mode = 'restaurants' | 'people';
+type Person = { id: string; username: string };
+
+// Search restaurants, or people to follow (whose reviews then fill your Feed).
 export default function Explore() {
   const t = useTheme();
+  const me = useAuth().session?.user.id;
+  const [mode, setMode] = useState<Mode>('restaurants');
   const [q, setQ] = useState('');
-  const [results, setResults] = useState<Restaurant[]>([]);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [following, setFollowing] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
+  // Who you already follow, so each person shows Follow or Following.
   useEffect(() => {
-    const term = q.trim();
-    if (term.length < 2) { setResults([]); return; }
+    if (!me) return;
+    supabase.from('follows').select('following_id').eq('follower_id', me)
+      .then(({ data }) => setFollowing(new Set((data ?? []).map((f) => f.following_id))));
+  }, [me, mode]);
+
+  useEffect(() => {
+    const term = q.trim().replace(/[%_]/g, '').replace(/^@/, '');
+    if (term.length < 2) { setRestaurants([]); setPeople([]); return; }
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const { data, error } = await supabase.from('restaurants')
-        .select('id, name, address, postcode, hygiene_rating, menu_source')
-        .ilike('name', `%${term.replace(/[%_]/g, '')}%`).order('name').limit(40);
-      if (cancelled) return;
-      setError(error ? error.message : null);
-      setResults(data ?? []);
+      if (mode === 'restaurants') {
+        const { data, error } = await supabase.from('restaurants')
+          .select('id, name, address, postcode, hygiene_rating, menu_source')
+          .ilike('name', `%${term}%`).order('name').limit(40);
+        if (cancelled) return;
+        setError(error ? error.message : null);
+        setRestaurants(data ?? []);
+      } else {
+        const { data, error } = await supabase.from('profiles').select('id, username')
+          .ilike('username', `%${term.toLowerCase()}%`).neq('id', me ?? '').order('username').limit(40);
+        if (cancelled) return;
+        setError(error ? error.message : null);
+        setPeople(data ?? []);
+      }
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [q]);
+  }, [q, mode, me]);
+
+  async function toggleFollow(person: Person) {
+    if (!me) return;
+    const on = following.has(person.id);
+    const { error } = on
+      ? await supabase.from('follows').delete().eq('follower_id', me).eq('following_id', person.id)
+      : await supabase.from('follows').insert({ follower_id: me, following_id: person.id });
+    if (error) { setError(error.message); return; }
+    setFollowing((prev) => {
+      const next = new Set(prev);
+      if (on) next.delete(person.id); else next.add(person.id);
+      return next;
+    });
+  }
+
+  const searched = q.trim().replace(/^@/, '').length >= 2;
+  const header = (
+    <View style={{ gap: 10, marginBottom: 8 }}>
+      <Segmented value={mode} onChange={(m) => { setMode(m); setError(null); }}
+        options={[{ value: 'restaurants', label: 'Restaurants' }, { value: 'people', label: 'People' }]} />
+      <Field placeholder={mode === 'restaurants' ? 'Search a restaurant' : 'Search a username'} value={q} onChangeText={setQ}
+        autoCorrect={false} autoCapitalize="none" />
+      {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
+    </View>
+  );
+
+  if (mode === 'people') {
+    return (
+      <FlatList
+        style={{ backgroundColor: t.surface }}
+        contentContainerStyle={{ padding: 16 }}
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={header}
+        data={people}
+        keyExtractor={(p) => p.id}
+        renderItem={({ item }) => {
+          const on = following.has(item.id);
+          return (
+            <View style={[styles.person, { borderBottomColor: t.line }]}>
+              <Pressable style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                onPress={() => router.push({ pathname: '/user/[id]', params: { id: item.id } })}>
+                <View style={[styles.avatar, { backgroundColor: t.ink }]}>
+                  <Text style={{ color: t.surface, fontWeight: '700' }}>{item.username[0]?.toUpperCase()}</Text>
+                </View>
+                <Text style={{ color: t.ink, fontWeight: '700', fontSize: 15 }}>@{item.username}</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => toggleFollow(item)}
+                style={[styles.follow, on ? { borderColor: t.line } : { backgroundColor: t.ink, borderColor: t.ink }]}>
+                <Text style={{ color: on ? t.ink : t.surface, fontWeight: '700', fontSize: 13 }}>{on ? 'Following' : 'Follow'}</Text>
+              </Pressable>
+            </View>
+          );
+        }}
+        ListEmptyComponent={searched ? <Empty title="Nobody found" body="Check the spelling of their username." />
+          : <Empty title="Find your friends" body="Search a username to follow them. Their reviews will show in your Feed." />}
+      />
+    );
+  }
 
   return (
     <FlatList
       style={{ backgroundColor: t.surface }}
       contentContainerStyle={{ padding: 16 }}
       keyboardShouldPersistTaps="handled"
-      ListHeaderComponent={
-        <View style={{ gap: 8, marginBottom: 8 }}>
-          <Field placeholder="Search a restaurant" value={q} onChangeText={setQ} autoCorrect={false} />
-          {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
-        </View>
-      }
-      data={results}
+      ListHeaderComponent={header}
+      data={restaurants}
       keyExtractor={(r) => r.id}
       renderItem={({ item }) => (
         <Link href={{ pathname: '/restaurant/[id]', params: { id: item.id } }} asChild>
@@ -49,11 +126,14 @@ export default function Explore() {
           </Pressable>
         </Link>
       )}
-      ListEmptyComponent={q.trim().length >= 2 ? <Empty title="No restaurants found" body="Try a shorter name." /> : undefined}
+      ListEmptyComponent={searched ? <Empty title="No restaurants found" body="Try a shorter name." /> : undefined}
     />
   );
 }
 
 const styles = StyleSheet.create({
   row: { paddingVertical: 12, gap: 2, borderBottomWidth: StyleSheet.hairlineWidth },
+  person: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  avatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  follow: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 },
 });

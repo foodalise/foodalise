@@ -3,7 +3,7 @@ import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
-import { Button, Empty, Label } from '@/components/ui';
+import { Button, Empty, Segmented } from '@/components/ui';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { deleteReview } from '@/lib/reviews';
@@ -28,6 +28,7 @@ export function ProfileView({ userId }: { userId: string }) {
   const [iFollow, setIFollow] = useState(false);
   const [iBlocked, setIBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<'items' | 'restaurants'>('items');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,7 +138,28 @@ export function ProfileView({ userId }: { userId: string }) {
     ]);
   }
 
-  const restaurants = new Set(reviews.map((r) => r.dishes?.restaurants?.id).filter(Boolean)).size;
+  // Reviews grouped by restaurant, most recent visit first (reviews are newest first).
+  const byRestaurant: { id: string; name: string; reviews: FeedReview[] }[] = [];
+  for (const r of reviews) {
+    const place = r.dishes?.restaurants;
+    if (!place) continue;
+    const group = byRestaurant.find((g) => g.id === place.id);
+    if (group) group.reviews.push(r);
+    else byRestaurant.push({ id: place.id, name: place.name, reviews: [r] });
+  }
+  const restaurants = byRestaurant.length;
+
+  const tile = (r: FeedReview) => {
+    const p = firstPhoto(r);
+    return (
+      <Pressable key={r.id} accessibilityRole="button" accessibilityLabel={r.dishes?.name ?? 'Review photo'}
+        onPress={() => onTile(r)}
+        style={{ width: cell, height: cell, borderRadius: 6, overflow: 'hidden', backgroundColor: t.bg }}>
+        {p ? <Image source={{ uri: photoUrl(p) }} style={{ width: cell, height: cell }} contentFit="cover" /> : null}
+        <Text style={styles.badge}>{formatScore(r.rating)}</Text>
+      </Pressable>
+    );
+  };
   const avg = reviews.length ? reviews.reduce((s, r) => s + Number(r.rating), 0) / reviews.length : null;
 
   return (
@@ -171,21 +193,27 @@ export function ProfileView({ userId }: { userId: string }) {
       ) : null}
       {iBlocked ? <Text style={{ color: t.muted }}>You've blocked this person, so you can't see their reviews.</Text> : null}
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
-      {reviews.length ? <View style={{ gap: 2 }}>
-        <Label>{isMe ? "Dishes I've tried" : 'Dishes tried'}</Label>
-        {isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
-      </View> : null}
       {reviews.length ? (
-        <View style={styles.grid}>
-          {reviews.map((r) => {
-            const p = firstPhoto(r);
+        <Segmented value={view} onChange={setView}
+          options={[{ value: 'items', label: 'Items' }, { value: 'restaurants', label: 'Restaurant' }]} />
+      ) : null}
+      {reviews.length && isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
+      {reviews.length && view === 'items' ? (
+        <View style={styles.grid}>{reviews.map(tile)}</View>
+      ) : reviews.length ? (
+        <View style={{ gap: 18 }}>
+          {byRestaurant.map((g) => {
+            const avgHere = g.reviews.reduce((s, r) => s + Number(r.rating), 0) / g.reviews.length;
             return (
-              <Pressable key={r.id} accessibilityRole="button" accessibilityLabel={r.dishes?.name ?? 'Review photo'}
-                onPress={() => onTile(r)}
-                style={{ width: cell, height: cell, borderRadius: 6, overflow: 'hidden', backgroundColor: t.bg }}>
-                {p ? <Image source={{ uri: photoUrl(p) }} style={{ width: cell, height: cell }} contentFit="cover" /> : null}
-                <Text style={styles.badge}>{formatScore(r.rating)}</Text>
-              </Pressable>
+              <View key={g.id} style={{ gap: 8 }}>
+                <Pressable accessibilityRole="link" onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: g.id } })}>
+                  <Text style={{ color: t.ink, fontWeight: '800', fontSize: 16 }}>{g.name}</Text>
+                  <Text style={{ color: t.muted, fontSize: 12 }}>
+                    {g.reviews.length} {g.reviews.length === 1 ? 'dish' : 'dishes'} · avg {formatScore(avgHere)}
+                  </Text>
+                </Pressable>
+                <View style={styles.grid}>{g.reviews.map(tile)}</View>
+              </View>
             );
           })}
         </View>
