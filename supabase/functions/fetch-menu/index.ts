@@ -4,7 +4,7 @@
 //
 //   POST { restaurantId: string } -> { status: string, added: number }
 //
-// Websites come from OpenStreetMap (free), then a web search by Claude (about 1p
+// Websites come from OpenStreetMap (free), then (only if SEARCH_MONTHLY_CAP > 0) a web search by Claude (about 1p
 // each, capped per month). If GOOGLE_PLACES_API_KEY is set, Google Places is tried
 // last, capped to stay inside Google's free monthly allowance.
 // Secrets: ANTHROPIC_API_KEY (required), GOOGLE_PLACES_API_KEY (optional).
@@ -16,7 +16,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 const RETRY_AFTER_DAYS: Record<string, number> = { done: 30, no_menu: 30, no_website: 14, unreadable: 7, error: 1, running: 0.01 };
 const DAILY_LIMIT = 30; // restaurants one person can trigger a day
 const GOOGLE_FREE_MONTHLY = 950; // Google gives 1,000 free website lookups a month; stay under it
-const SEARCH_MONTHLY_CAP = 500; // web searches a month, about 1p each
+const SEARCH_MONTHLY_CAP = 0; // web searches a month, about 1p each; 0 keeps it free (Jay's choice)
 const OVERPASS_SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 // Listing and delivery sites aren't the restaurant's own website.
 const NOT_OWN_SITE = ['deliveroo.co.uk', 'ubereats.com', 'just-eat.co.uk', 'tripadvisor.co.uk', 'tripadvisor.com', 'facebook.com', 'instagram.com', 'google.com', 'yelp.co.uk', 'yelp.com', 'opentable.co.uk', 'opentable.com', 'thefork.co.uk', 'tiktok.com', 'x.com', 'twitter.com', 'foodhygiene.food.gov.uk', 'ratings.food.gov.uk', 'restaurantguru.com', 'menulist.menu', 'sirved.com', 'hungryhouse.co.uk', 'yell.com', 'squaremeal.co.uk', 'timeout.com'];
