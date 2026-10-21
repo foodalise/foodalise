@@ -52,6 +52,26 @@ export function Field(props: TextInputProps) {
   );
 }
 
+// Two or three side-by-side tabs, e.g. Items | Restaurant.
+export function Segmented<T extends string>({ options, value, onChange }: {
+  options: { value: T; label: string }[]; value: T; onChange: (v: T) => void;
+}) {
+  const t = useTheme();
+  return (
+    <View style={[styles.segments, { backgroundColor: t.bg }]} accessibilityRole="tablist">
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <Pressable key={o.value} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(o.value)}
+            style={[styles.segment, on && { backgroundColor: t.surface, borderColor: t.line }]}>
+            <Text style={{ color: on ? t.ink : t.muted, fontWeight: on ? '700' : '600' }}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function Label({ children }: { children: ReactNode }) {
   const t = useTheme();
   return <Text style={[styles.label, { color: t.muted }]}>{children}</Text>;
@@ -164,4 +184,6 @@ const styles = StyleSheet.create({
   photo: { width: '100%', aspectRatio: 1, borderRadius: 12 },
   dish: { fontWeight: '700', fontSize: 16 },
   more: { paddingHorizontal: 4 },
+  segments: { flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },
+  segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: 'transparent' },
 });

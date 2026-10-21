@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -9,6 +10,7 @@ import { SnapMenuButton } from '@/components/SnapMenuButton';
 import { Button, Empty, Field, Label } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
+import { formatDistance, restaurantsNear, type NearbyRestaurant } from '@/lib/places';
 import { addDish, postReview } from '@/lib/reviews';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
@@ -39,6 +41,8 @@ export default function Review() {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nearby, setNearby] = useState<NearbyRestaurant[] | null>(null);
+  const [locationOff, setLocationOff] = useState(false);
 
   // Opened from a restaurant or dish page: jump straight to the right step.
   useEffect(() => {
@@ -54,6 +58,21 @@ export default function Review() {
         .then(({ data }) => { if (data) { setRestaurant(data); setDish(null); } });
     }
   }, [params.dishId, params.restaurantId]);
+
+  // Step 1: the restaurants closest to you, so the one you're in is usually at the top.
+  useEffect(() => {
+    if (restaurant) return;
+    let cancelled = false;
+    (async () => {
+      const { granted } = await Location.requestForegroundPermissionsAsync();
+      if (!granted) { if (!cancelled) setLocationOff(true); return; }
+      const pos = (await Location.getLastKnownPositionAsync({ maxAge: 120_000 }))
+        ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+      const list = await restaurantsNear(pos.coords);
+      if (!cancelled) { setLocationOff(false); setNearby(list); }
+    })().catch(() => { if (!cancelled) setNearby([]); });
+    return () => { cancelled = true; };
+  }, [restaurant]);
 
   // Step 1: restaurant search.
   useEffect(() => {
@@ -130,6 +149,23 @@ export default function Review() {
           <>
             <Text style={[styles.h, { color: t.ink }]}>Where did you eat?</Text>
             <Field placeholder="Search restaurants" value={q} onChangeText={setQ} autoCorrect={false} />
+            {q.trim().length < 2 ? (
+              <>
+                <Label>Near you</Label>
+                {locationOff ? <Text style={{ color: t.muted }}>Turn on location in Settings to see restaurants near you.</Text>
+                  : nearby === null ? <Text style={{ color: t.muted }}>Finding restaurants near you…</Text>
+                  : !nearby.length ? <Text style={{ color: t.muted }}>No restaurants found nearby. Search for it above.</Text> : null}
+                {(nearby ?? []).map((r) => (
+                  <Pressable key={r.id} style={[styles.row, { borderBottomColor: t.line }]} onPress={() => setRestaurant(r)}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                      <Text style={[styles.rowTitle, { color: t.ink, flex: 1 }]}>{r.name}</Text>
+                      <Text style={{ color: t.muted, fontSize: 12 }}>{formatDistance(r.km)}</Text>
+                    </View>
+                    {r.address ? <Text style={{ color: t.muted, fontSize: 12 }}>{r.address}</Text> : null}
+                  </Pressable>
+                ))}
+              </>
+            ) : null}
             {restaurants.map((r) => (
               <Pressable key={r.id} style={[styles.row, { borderBottomColor: t.line }]} onPress={() => { setRestaurant(r); setQ(''); }}>
                 <Text style={[styles.rowTitle, { color: t.ink }]}>{r.name}</Text>

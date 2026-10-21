@@ -47,3 +47,26 @@ export function distanceKm(a: { latitude: number; longitude: number }, b: { lati
 export function formatDistance(km: number) {
   return km < 1 ? `${Math.round(km * 1000 / 10) * 10} m` : `${km.toFixed(1)} km`;
 }
+
+export type NearbyRestaurant = { id: string; name: string; address: string | null; km: number };
+
+// The closest restaurants to a point, nearest first. Looks within about 400m,
+// then widens to 2km if that finds too few.
+export async function restaurantsNear(here: { latitude: number; longitude: number }, count = 8) {
+  for (const km of [0.4, 2]) {
+    const dLat = km / 111;
+    const dLng = km / (111 * Math.cos((here.latitude * Math.PI) / 180));
+    const { data, error } = await supabase.from('restaurants')
+      .select('id, name, address, latitude, longitude')
+      .gte('latitude', here.latitude - dLat).lte('latitude', here.latitude + dLat)
+      .gte('longitude', here.longitude - dLng).lte('longitude', here.longitude + dLng)
+      .limit(300);
+    if (error) throw error;
+    const near = (data ?? [])
+      .map((r): NearbyRestaurant => ({ id: r.id, name: r.name, address: r.address, km: distanceKm(here, r as { latitude: number; longitude: number }) }))
+      .sort((a, b) => a.km - b.km)
+      .slice(0, count);
+    if (near.length >= 3 || km === 2) return near;
+  }
+  return [];
+}
