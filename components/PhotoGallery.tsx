@@ -7,7 +7,7 @@ import { PhotoStats } from '@/components/PhotoStats';
 import { useTheme } from '@/constants/theme';
 import { photoUrl } from '@/lib/supabase';
 
-export type GalleryPhoto = { path: string; reviewId: string; dish: string; likes: number; comments: number; rating: number };
+export type GalleryPhoto = { path: string; reviewId: string; dishId?: string; dish: string; likes: number; comments: number; rating: number };
 
 // Photos in pages of 9 (a 3 x 3 grid); swipe sideways for the next 9.
 // Tapping a photo opens that post with its comments.

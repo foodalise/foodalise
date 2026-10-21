@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
@@ -7,6 +6,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { MapFilterSheet, type FilterKind } from '@/components/MapFilterSheet';
 import type { GalleryPhoto } from '@/components/PhotoGallery';
+import { PhotoStrip } from '@/components/PhotoStrip';
 import { RestaurantMap, type RestaurantMapHandle } from '@/components/RestaurantMap';
 import { Button, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
@@ -14,7 +14,6 @@ import { DIETS, PRICE_LEVELS } from '@/lib/cuisines';
 import { openDirections, priceLabel } from '@/lib/directions';
 import { restaurantPhotos } from '@/lib/photos';
 import { distanceKm, formatDistance, NO_FILTERS, restaurantsIn, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
-import { photoUrl } from '@/lib/supabase';
 import { loadWishlist, type WishPlace } from '@/lib/wishlist';
 
 const NEARBY_KM = 0.8; // how close a wishlist restaurant must be to get a nudge
@@ -179,16 +178,7 @@ export default function MapScreen() {
             </View>
             <ScorePill rating={selected.rating} />
           </View>
-          {photos.length ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-              {photos.map((p) => (
-                <Pressable key={p.path} accessibilityLabel={p.dish}
-                  onPress={() => router.push({ pathname: '/comments/[id]', params: { id: p.reviewId } })}>
-                  <Image source={{ uri: photoUrl(p.path) }} style={[styles.photo, { backgroundColor: t.line }]} contentFit="cover" />
-                </Pressable>
-              ))}
-            </ScrollView>
-          ) : null}
+          <PhotoStrip photos={photos} />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ flex: 1 }}>
               <Button title="See the menu" onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: selected.id } })} />
@@ -215,5 +205,4 @@ const styles = StyleSheet.create({
   cuisine: { fontWeight: '400', fontSize: 14, fontStyle: 'italic' },
   nudge: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12 },
   filter: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
-  photo: { width: 84, height: 84, borderRadius: 10 },
 });
