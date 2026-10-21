@@ -144,7 +144,8 @@ export default function RestaurantScreen() {
         </View>
       ) : null}
       <Button title="Review a dish here" onPress={() => router.push({ pathname: '/review', params: { restaurantId: id } })} />
-      <SnapMenuButton restaurantId={id} onAdded={loadDishes} />
+      {/* Only while there's no menu: once dishes are listed, a snap would just add near-duplicates. */}
+      {dishes?.length === 0 ? <SnapMenuButton restaurantId={id} onAdded={loadDishes} /> : null}
       {lookingUp ? (
         <View style={styles.looking}>
           <ActivityIndicator color={t.muted} />
@@ -163,7 +164,10 @@ export default function RestaurantScreen() {
       ) : null}
       {courses.map(({ course, dishes: inCourse }) => (
         <View key={course} style={{ gap: 2 }}>
-          <Label>{course}</Label>
+          <View style={[styles.course, { borderBottomColor: t.ink }]}>
+            <Text style={[styles.courseTitle, { color: t.ink }]}>{course}</Text>
+            <Text style={{ color: t.muted, fontSize: 12 }}>{inCourse.length} {inCourse.length === 1 ? 'dish' : 'dishes'}</Text>
+          </View>
           {inCourse.map((d) => (
             <Link key={d.id} href={{ pathname: '/dish/[id]', params: { id: d.id } }} asChild>
               <Pressable style={StyleSheet.flatten([styles.row, { borderBottomColor: t.line }])}>
@@ -192,6 +196,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
   chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, fontSize: 12, fontWeight: '600', overflow: 'hidden' },
+  course: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 14, paddingBottom: 6, borderBottomWidth: 2 },
+  courseTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.4 },
   summary: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   looking: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth },
