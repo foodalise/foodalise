@@ -1,4 +1,17 @@
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+
 import { PHOTO_BUCKET, supabase } from './supabase';
+
+// Phone photos are several megabytes; 1080px wide is plenty for the app and keeps
+// each photo around 150-300KB, so storage lasts far longer.
+const PHOTO_WIDTH = 1080;
+
+async function shrinkPhoto(photo: { uri: string; width?: number | null }) {
+  if (photo.width && photo.width <= PHOTO_WIDTH) return photo.uri;
+  const image = await ImageManipulator.manipulate(photo.uri).resize({ width: PHOTO_WIDTH }).renderAsync();
+  const saved = await image.saveAsync({ compress: 0.7, format: SaveFormat.JPEG });
+  return saved.uri;
+}
 
 export type NewReview = {
   userId: string;
@@ -7,17 +20,18 @@ export type NewReview = {
   presentation: number;
   value: number;
   body: string;
-  photo: { uri: string; mimeType?: string | null } | null;
+  photo: { uri: string; mimeType?: string | null; width?: number | null } | null;
 };
 
 // Upload the photo first, so a failed upload never leaves a review without its picture.
 export async function postReview({ userId, dishId, taste, presentation, value, body, photo }: NewReview) {
   let photoPath: string | null = null;
   if (photo) {
-    const contentType = photo.mimeType ?? 'image/jpeg';
+    const uri = await shrinkPhoto(photo);
+    const contentType = uri === photo.uri ? photo.mimeType ?? 'image/jpeg' : 'image/jpeg';
     const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg';
     photoPath = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const bytes = await (await fetch(photo.uri)).arrayBuffer();
+    const bytes = await (await fetch(uri)).arrayBuffer();
     const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(photoPath, bytes, { contentType });
     if (error) throw new Error(`Photo upload failed: ${error.message}`);
   }
