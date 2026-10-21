@@ -8,7 +8,10 @@
 // Websites come from OpenStreetMap (free), then (only if SEARCH_MONTHLY_CAP > 0) a web search by Claude (about 1p
 // each, capped per month). If GOOGLE_PLACES_API_KEY is set, Google Places is tried
 // last, capped to stay inside Google's free monthly allowance.
-// Secrets: ANTHROPIC_API_KEY (required), GOOGLE_PLACES_API_KEY (optional).
+// Sites that build their menu with JavaScript after loading (Square Online, Wix and
+// other ordering sites) arrive empty, so if the plain read finds no dishes, the page
+// is read again through Jina Reader (free), which loads it in a real browser first.
+// Secrets: ANTHROPIC_API_KEY (required), GOOGLE_PLACES_API_KEY and JINA_API_KEY (optional).
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
@@ -227,6 +230,32 @@ function menuLinks(page: Page) {
   return [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([href]) => href);
 }
 
+// The page as a browser shows it after its scripts run, as text, via Jina Reader.
+// Free without a key (rate limited); JINA_API_KEY raises the limit.
+async function getRenderedPage(url: string): Promise<Page | null> {
+  if (!(await robotsAllow(new URL(url)))) return null;
+  const key = Deno.env.get('JINA_API_KEY');
+  const res = await fetchWithTimeout(`https://r.jina.ai/${url}`, {
+    headers: { Accept: 'text/plain', 'X-Timeout': '25', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
+  }, 35_000).catch(() => null);
+  if (!res?.ok) return null;
+  const text = (await res.text()).trim();
+  return text.length > 200 ? { url, text } : null;
+}
+
+// Menu-looking links in rendered text (Jina writes links as [text](url)).
+function renderedMenuLinks(page: Page) {
+  const base = new URL(page.url);
+  const found: string[] = [];
+  for (const m of (page.text ?? '').matchAll(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g)) {
+    try {
+      const href = new URL(m[2]);
+      if (href.hostname === base.hostname && /menu|order|food/i.test(`${m[1]} ${href.pathname}`) && href.href !== base.href && !found.includes(href.href)) found.push(href.href);
+    } catch { /* not a link */ }
+  }
+  return found.slice(0, 1); // keeps the whole lookup well inside the function time limit
+}
+
 async function readMenu(pages: Page[]): Promise<Dish[]> {
   const content: Anthropic.ContentBlockParam[] = [];
   let chars = 0;
@@ -295,15 +324,28 @@ Deno.serve(async (req) => {
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
-    const home = await getPage(website);
-    if (!home) return await finish('unreadable', 0, website);
-    const pages = [home];
-    for (const link of menuLinks(home)) {
+    const home = await getPage(website).catch(() => null);
+    const pages = home ? [home] : [];
+    for (const link of home ? menuLinks(home) : []) {
       const page = await getPage(link).catch(() => null);
       if (page) pages.push(page);
     }
+    let dishes = pages.length ? await readMenu(pages) : [];
 
-    const dishes = await readMenu(pages);
+    // Nothing found: the menu may be drawn by JavaScript, so read it as a browser sees it.
+    if (!dishes.length) {
+      const rendered: Page[] = [];
+      const first = await getRenderedPage(website);
+      if (first) {
+        rendered.push(first);
+        for (const link of renderedMenuLinks(first)) {
+          const page = await getRenderedPage(link);
+          if (page) rendered.push(page);
+        }
+        dishes = await readMenu(rendered);
+      }
+      if (!home && !first) return await finish('unreadable', 0, website);
+    }
     const { data: existing } = await admin.from('dishes').select('name').eq('restaurant_id', r.id);
     const seen = new Set((existing ?? []).map((d) => d.name.toLowerCase()));
     const rows = [];
