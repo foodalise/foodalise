@@ -88,7 +88,7 @@ export default function Feed() {
     <FlatList
       ref={list}
       style={{ backgroundColor: t.surface }}
-      contentContainerStyle={{ padding: 16, gap: 16 }}
+      contentContainerStyle={{ padding: 16, gap: 28 }}
       data={reviews}
       keyExtractor={(r) => r.id}
       renderItem={({ item }) => <ReviewCard review={item} />}
