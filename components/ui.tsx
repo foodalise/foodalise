@@ -1,9 +1,11 @@
 import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
-import type { ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { formatScore, scoreColor, useTheme } from '@/constants/theme';
+import { useAuth } from '@/lib/auth';
+import { blockUser, reportReview, REPORT_REASONS } from '@/lib/safety';
 import { photoUrl } from '@/lib/supabase';
 import { firstPhoto, type FeedReview } from '@/lib/types';
 
@@ -67,8 +69,47 @@ export function Empty({ title, body }: { title: string; body?: string }) {
 
 export function ReviewCard({ review }: { review: FeedReview }) {
   const t = useTheme();
+  const me = useAuth().session?.user.id;
+  const [hidden, setHidden] = useState(false);
   const photo = firstPhoto(review);
   const dish = review.dishes;
+  const author = review.profiles;
+  if (hidden) return null;
+
+  // Someone else's review: report it, or block its author. Either hides it from you.
+  function openMenu() {
+    if (!me || !author) return;
+    Alert.alert(`Review by @${author.username}`, undefined, [
+      { text: 'Report review', onPress: chooseReason },
+      { text: `Block @${author.username}`, style: 'destructive', onPress: confirmBlock },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  function chooseReason() {
+    Alert.alert("What's wrong with it?", 'The Foodalise team will check it, and it will be hidden for you.', [
+      ...REPORT_REASONS.map((reason) => ({ text: reason, onPress: () => act(() => reportReview(me!, review.id, reason), 'Thanks, we\'ll take a look.') })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  }
+
+  function confirmBlock() {
+    Alert.alert(`Block @${author!.username}?`, "You won't see their reviews, and you'll stop following each other. You can unblock them from their profile.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Block', style: 'destructive', onPress: () => act(() => blockUser(me!, author!.id), `@${author!.username} is blocked.`) },
+    ]);
+  }
+
+  async function act(run: () => Promise<void>, done: string) {
+    try {
+      await run();
+      setHidden(true);
+      Alert.alert(done);
+    } catch (e) {
+      Alert.alert((e as Error).message);
+    }
+  }
+
   return (
     <View style={[styles.card, { borderBottomColor: t.line }]}>
       <View style={styles.who}>
@@ -81,6 +122,11 @@ export function ReviewCard({ review }: { review: FeedReview }) {
           <Text style={{ color: t.muted, fontSize: 12 }}>{new Date(review.created_at).toLocaleDateString('en-GB')}</Text>
         </Pressable>
         <ScorePill rating={review.rating} />
+        {me && author && author.id !== me ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Report or block" onPress={openMenu} hitSlop={10} style={styles.more}>
+            <Text style={{ color: t.muted, fontSize: 18, fontWeight: '800' }}>⋯</Text>
+          </Pressable>
+        ) : null}
       </View>
       {photo ? <Image source={{ uri: photoUrl(photo) }} style={[styles.photo, { backgroundColor: t.bg }]} contentFit="cover" /> : null}
       {dish ? (
@@ -117,4 +163,5 @@ const styles = StyleSheet.create({
   avatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   photo: { width: '100%', aspectRatio: 1, borderRadius: 12 },
   dish: { fontWeight: '700', fontSize: 16 },
+  more: { paddingHorizontal: 4 },
 });
