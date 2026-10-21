@@ -174,7 +174,13 @@ export default function Review() {
                 {r.address ? <Text style={{ color: t.muted, fontSize: 12 }}>{r.address}</Text> : null}
               </Pressable>
             ))}
-            {q.trim().length >= 2 && !restaurants.length ? <Empty title="No restaurants found" body="Try a shorter name." /> : null}
+            {q.trim().length >= 2 && !restaurants.length ? <Empty title="No restaurants found" body="Try a shorter name, or add it below." /> : null}
+            {q.trim().length >= 2 ? (
+              <Pressable accessibilityRole="button" style={styles.row}
+                onPress={() => router.navigate({ pathname: '/map', params: { add: q.trim() } })}>
+                <Text style={{ color: t.accent, fontWeight: '700' }}>Can't find it? Add “{q.trim()}” on the map</Text>
+              </Pressable>
+            ) : null}
           </>
         ) : null}
 

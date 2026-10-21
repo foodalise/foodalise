@@ -1,9 +1,9 @@
 import * as Location from 'expo-location';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MapFilterSheet, type FilterKind } from '@/components/MapFilterSheet';
@@ -14,7 +14,7 @@ import { useTheme } from '@/constants/theme';
 import { DIETS, PRICE_LEVELS } from '@/lib/cuisines';
 import { openDirections, priceLabel } from '@/lib/directions';
 import { restaurantPhotos } from '@/lib/photos';
-import { coverPhotos, distanceKm, formatDistance, NO_FILTERS, restaurantsIn, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
+import { addRestaurant, coverPhotos, distanceKm, formatDistance, NO_FILTERS, restaurantsIn, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { loadWishlist, type WishPlace } from '@/lib/wishlist';
 
@@ -56,6 +56,10 @@ export default function MapScreen() {
   const [covers, setCovers] = useState<Record<string, string>>({});
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Hit[]>([]);
+  // Adding a missing place: the name being typed, while a pin sits in the middle of the map.
+  const [adding, setAdding] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const params = useLocalSearchParams<{ add?: string }>();
   const [me, setMe] = useState<Coords | null>(null);
   const [locationOff, setLocationOff] = useState(false);
   const [restaurants, setRestaurants] = useState<MapRestaurant[]>([]);
@@ -140,6 +144,34 @@ export default function MapScreen() {
     return () => { live = false; clearTimeout(timer); };
   }, [q]);
 
+  // Opened from Review with "Add it on the map": start adding with the name they searched for.
+  useEffect(() => {
+    if (params.add === undefined) return;
+    setAdding(params.add);
+    setSelectedId(null);
+    router.setParams({ add: undefined });
+  }, [params.add]);
+
+  function startAdding() {
+    setAdding(q.trim());
+    setQ(''); setHits([]); setSelectedId(null);
+  }
+
+  async function saveNewPlace() {
+    const at = region.current;
+    if (adding === null || !at) return;
+    setSaving(true);
+    try {
+      const id = await addRestaurant(adding, { latitude: at.latitude, longitude: at.longitude });
+      setAdding(null);
+      await load(at);
+      setSelectedId(id);
+    } catch (e) {
+      Alert.alert((e as Error).message);
+    }
+    setSaving(false);
+  }
+
   function openHit(h: Hit) {
     setQ(''); setHits([]);
     const { latitude, longitude } = h.restaurant;
@@ -163,7 +195,32 @@ export default function MapScreen() {
         onRegionChange={load}
       />
 
-      <View style={[styles.top, { top: insets.top + 8 }]} pointerEvents="box-none">
+      {adding !== null ? (
+        <>
+          {/* The new place goes where this pin points: move the map underneath it. */}
+          <View pointerEvents="none" style={styles.crosshair}>
+            <SymbolView name={{ ios: 'mappin', android: 'location_on', web: 'location_on' }} tintColor={t.accent} size={40}
+              fallback={<View style={[styles.pinDot, { backgroundColor: t.accent }]} />} />
+          </View>
+          <View style={[styles.top, { top: insets.top + 8 }]} pointerEvents="box-none">
+            <View style={[styles.addCard, { backgroundColor: t.card, borderColor: t.line }]}>
+              <Text style={{ color: t.ink, fontWeight: '800', fontSize: 17 }}>Add a missing place</Text>
+              <Text style={{ color: t.muted, fontSize: 13 }}>Move the map so the pin sits on the restaurant, then add it.</Text>
+              <TextInput value={adding} onChangeText={setAdding} placeholder="Restaurant name" placeholderTextColor={t.muted}
+                autoFocus={!adding} autoCorrect={false} maxLength={80}
+                style={[styles.addField, { color: t.ink, borderColor: t.line, backgroundColor: t.surface }]} />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1 }}><Button variant="ghost" title="Cancel" onPress={() => setAdding(null)} /></View>
+                <View style={{ flex: 1 }}>
+                  <Button title="Add here" onPress={saveNewPlace} busy={saving} disabled={adding.trim().length < 2} />
+                </View>
+              </View>
+            </View>
+          </View>
+        </>
+      ) : null}
+
+      <View style={[styles.top, { top: insets.top + 8 }, adding !== null && { display: 'none' }]} pointerEvents="box-none">
         <View style={[styles.search, { backgroundColor: t.card, borderColor: t.line }]}>
           <SymbolView name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }} tintColor={t.muted} size={18} />
           <TextInput value={q} onChangeText={setQ} placeholder="Search dishes or places" placeholderTextColor={t.muted}
@@ -174,9 +231,16 @@ export default function MapScreen() {
             </Pressable>
           ) : null}
         </View>
-        {hits.length ? (
+        {q.trim().length >= 2 ? (
           <View style={[styles.hits, { backgroundColor: t.card, borderColor: t.line }]}>
             <FlatList data={hits} keyExtractor={(h) => h.key} keyboardShouldPersistTaps="handled"
+              ListFooterComponent={
+                <Pressable onPress={startAdding} style={styles.hit}>
+                  <Text style={{ color: t.accent, fontWeight: '700' }} numberOfLines={1}>
+                    {hits.length ? "Can't see it? " : ''}Add “{q.trim()}” to the map
+                  </Text>
+                </Pressable>
+              }
               renderItem={({ item: h }) => (
                 <Pressable onPress={() => openHit(h)} style={[styles.hit, { borderBottomColor: t.line }]}>
                   <Text style={{ color: t.ink, fontWeight: '700' }} numberOfLines={1}>{h.dish ?? h.restaurant.name}</Text>
@@ -190,7 +254,7 @@ export default function MapScreen() {
               key: kind, label: `${filterLabel(kind, filters)} ▾`, on: isSet(kind, filters), onPress: () => setSheet(kind),
             }))} />
         )}
-        {nearby && !selected && !hits.length ? (
+        {nearby && !selected && q.trim().length < 2 ? (
           <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/restaurant/[id]', params: { id: nearby.w.restaurant.id } })}
             style={[styles.nudge, { backgroundColor: t.accent }]}>
             <Text style={{ color: t.accentInk, flex: 1, fontSize: 14 }}>
@@ -210,14 +274,14 @@ export default function MapScreen() {
             </Pressable>
           </Pressable>
         ) : null}
-        {(locationOff || error) && !hits.length ? (
+        {(locationOff || error) && q.trim().length < 2 ? (
           <Text style={[styles.banner, { backgroundColor: t.card, color: error ? t.lo : t.muted }]}>
             {error ?? 'Location is off, so the map starts in central London.'}
           </Text>
         ) : null}
       </View>
 
-      <View style={styles.bottom} pointerEvents="box-none">
+      <View style={[styles.bottom, adding !== null && { display: 'none' }]} pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Show where I am"
@@ -287,5 +351,9 @@ const styles = StyleSheet.create({
   name: { fontWeight: '800', fontSize: 24, letterSpacing: -0.4 },
   dishPhoto: { width: 112, height: 80, borderRadius: 12 },
   directions: { width: 52, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  crosshair: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', paddingBottom: 40 },
+  pinDot: { width: 18, height: 18, borderRadius: 9 },
+  addCard: { gap: 10, padding: 14, borderRadius: 20, borderWidth: 1 },
+  addField: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, fontSize: 16 },
   nudge: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14 },
 });
