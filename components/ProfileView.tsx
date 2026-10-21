@@ -7,11 +7,13 @@ import { Button, Empty, Label } from '@/components/ui';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { deleteReview } from '@/lib/reviews';
+import { blockUser, deleteAccount, unblockUser } from '@/lib/safety';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { firstPhoto, REVIEW_SELECT, type FeedReview } from '@/lib/types';
 
 // One person's food diary: follower counts, stats and a photo grid of their reviews.
-// Shows Sign out on your own profile and Follow / Following on everyone else's.
+// Shows Sign out, Privacy and Delete account on your own profile, and Follow and
+// Block on everyone else's.
 export function ProfileView({ userId }: { userId: string }) {
   const t = useTheme();
   const { session } = useAuth();
@@ -24,13 +26,14 @@ export function ProfileView({ userId }: { userId: string }) {
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
   const [iFollow, setIFollow] = useState(false);
+  const [iBlocked, setIBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
-    const [profile, theirs, followerCount, followingCount, mine] = await Promise.all([
+    const [profile, theirs, followerCount, followingCount, mine, blocked] = await Promise.all([
       supabase.from('profiles').select('username').eq('id', userId).single(),
       supabase.from('reviews').select(REVIEW_SELECT).eq('user_id', userId)
         .order('created_at', { ascending: false }).returns<FeedReview[]>(),
@@ -39,12 +42,16 @@ export function ProfileView({ userId }: { userId: string }) {
       me && !isMe
         ? supabase.from('follows').select('follower_id').eq('follower_id', me).eq('following_id', userId).maybeSingle()
         : Promise.resolve({ data: null }),
+      me && !isMe
+        ? supabase.from('blocks').select('blocked_id').eq('blocker_id', me).eq('blocked_id', userId).maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
     setUsername(profile.data?.username ?? null);
     setReviews(theirs.data ?? []);
     setFollowers(followerCount.count ?? 0);
     setFollowing(followingCount.count ?? 0);
     setIFollow(!!mine.data);
+    setIBlocked(!!blocked.data);
     setLoading(false);
   }, [userId, me, isMe]);
 
@@ -60,6 +67,43 @@ export function ProfileView({ userId }: { userId: string }) {
     if (error) setError(error.message);
     else { setIFollow(!iFollow); setFollowers((n) => n + (iFollow ? -1 : 1)); }
     setBusy(false);
+  }
+
+  function toggleBlock() {
+    if (!me) return;
+    const name = username ? `@${username}` : 'them';
+    const run = async () => {
+      setError(null);
+      try {
+        if (iBlocked) await unblockUser(me, userId);
+        else await blockUser(me, userId);
+        await load(true);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    };
+    if (iBlocked) return run();
+    Alert.alert(`Block ${name}?`, "You won't see their reviews, and you'll stop following each other.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Block', style: 'destructive', onPress: run },
+    ]);
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert('Delete your account?', 'Your reviews, photos and followers will be deleted for good. This can\'t be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete account', style: 'destructive', onPress: async () => {
+          setBusy(true); setError(null);
+          try {
+            await deleteAccount();
+          } catch (e) {
+            setError((e as Error).message);
+            setBusy(false);
+          }
+        },
+      },
+    ]);
   }
 
   function openDish(r: FeedReview) {
@@ -122,9 +166,10 @@ export function ProfileView({ userId }: { userId: string }) {
           </View>
         ))}
       </View>
-      {!isMe && me ? (
+      {!isMe && me && !iBlocked ? (
         <Button variant={iFollow ? 'ghost' : 'primary'} title={iFollow ? 'Following' : 'Follow'} onPress={toggleFollow} busy={busy} />
       ) : null}
+      {iBlocked ? <Text style={{ color: t.muted }}>You've blocked this person, so you can't see their reviews.</Text> : null}
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
       {reviews.length ? <View style={{ gap: 2 }}>
         <Label>{isMe ? "Dishes I've tried" : 'Dishes tried'}</Label>
@@ -148,7 +193,21 @@ export function ProfileView({ userId }: { userId: string }) {
         <Empty title={isMe ? 'Your food diary is empty' : 'No reviews yet'}
           body={isMe ? 'Every dish you review will appear here.' : undefined} />
       )}
-      {isMe ? <Button variant="ghost" title="Sign out" onPress={() => supabase.auth.signOut()} /> : null}
+      {isMe ? (
+        <View style={{ gap: 8 }}>
+          <Button variant="ghost" title="Sign out" onPress={() => supabase.auth.signOut()} />
+          <Pressable accessibilityRole="link" onPress={() => router.push('/privacy')} style={styles.link}>
+            <Text style={{ color: t.muted }}>Privacy policy</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={confirmDeleteAccount} disabled={busy} style={styles.link}>
+            <Text style={{ color: t.lo }}>Delete my account</Text>
+          </Pressable>
+        </View>
+      ) : me ? (
+        <Pressable accessibilityRole="button" onPress={toggleBlock} style={styles.link}>
+          <Text style={{ color: iBlocked ? t.muted : t.lo }}>{iBlocked ? `Unblock @${username ?? ''}` : `Block @${username ?? ''}`}</Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
   );
 }
@@ -160,6 +219,7 @@ const styles = StyleSheet.create({
   stats: { flexDirection: 'row', gap: 8 },
   stat: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 10, alignItems: 'center' },
   statNum: { fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  link: { alignItems: 'center', paddingVertical: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   badge: { position: 'absolute', right: 4, bottom: 4, backgroundColor: 'rgba(10,12,10,0.72)', color: '#fff', fontWeight: '800', fontSize: 11, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, overflow: 'hidden' },
 });

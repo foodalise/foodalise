@@ -1,5 +1,6 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Field } from '@/components/ui';
@@ -52,6 +53,9 @@ export default function SignIn() {
               disabled={!email || password.length < 6} />
             <Button variant="ghost" title={mode === 'in' ? 'New here? Create an account' : 'Have an account? Sign in'}
               onPress={() => { setMode(mode === 'in' ? 'up' : 'in'); setMessage(null); }} />
+            <Pressable accessibilityRole="link" onPress={() => router.push('/privacy')} style={{ alignItems: 'center', paddingVertical: 8 }}>
+              <Text style={{ color: t.muted, fontSize: 13 }}>Privacy policy</Text>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

@@ -49,6 +49,7 @@ function RootLayoutNav() {
         <Stack.Protected guard={!session}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
+        <Stack.Screen name="privacy" options={{ title: 'Privacy policy' }} />
       </Stack>
     </ThemeProvider>
   );

@@ -28,12 +28,13 @@ Next up: loading chain menus and reading menu photos with AI.
    ```
    Scan the QR code with the Expo Go app on your phone, or press `w` to open it in a browser.
 4. **Sample data (optional).** Run `supabase/seed.sql` in the SQL editor to add eight London chain restaurants with their menus.
-5. **Load restaurants.** Find your council's id, then import its restaurants, cafés, takeaways and pubs:
+5. **Load restaurants.** Import every restaurant, café, takeaway and pub in London, or one council at a time:
    ```bash
+   node --env-file=.env scripts/import-fsa.mjs --london
    node --env-file=.env scripts/import-fsa.mjs --list-authorities | grep -i westminster
    node --env-file=.env scripts/import-fsa.mjs --authority <id>
    ```
-   This uses the service role key, so only run it on your own machine.
+   Re-run it monthly to pick up new openings. This uses the service role key, so only run it on your own machine.
 
 ## Project layout
 
