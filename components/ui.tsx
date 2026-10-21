@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
@@ -209,6 +210,13 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
             {review.comment_count > 0 ? review.comment_count : 'Comment'}
           </Text>
         </Pressable>
+        {firstPhoto(review) ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Share" hitSlop={8} style={styles.action}
+            onPress={() => router.push({ pathname: '/share/[id]', params: { id: review.id } })}>
+            <SymbolView name={{ ios: 'square.and.arrow.up', android: 'share', web: 'share' }} tintColor={t.muted} size={18} />
+            <Text style={{ color: t.muted, fontWeight: '600' }}>Share</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

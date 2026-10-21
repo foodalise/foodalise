@@ -1,12 +1,14 @@
 import { Image } from 'expo-image';
 import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button, Empty, Label, ReviewCard, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
+import { useAuth } from '@/lib/auth';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { firstPhoto, REVIEW_SELECT, type FeedReview } from '@/lib/types';
+import { isWanted, setWanted } from '@/lib/wishlist';
 
 type Dish = { id: string; name: string; section: string | null; restaurants: { id: string; name: string } | null };
 
@@ -15,13 +17,28 @@ export default function DishScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [dish, setDish] = useState<Dish | null>(null);
   const [reviews, setReviews] = useState<FeedReview[]>([]);
+  const me = useAuth().session?.user.id;
+  const [wanted, setWantedState] = useState(false);
 
   useEffect(() => {
     supabase.from('dishes').select('id, name, section, restaurants(id, name)').eq('id', id).single<Dish>()
       .then(({ data }) => setDish(data));
     supabase.from('reviews').select(REVIEW_SELECT).eq('dish_id', id).order('created_at', { ascending: false })
       .returns<FeedReview[]>().then(({ data }) => setReviews(data ?? []));
+    isWanted(id).then(setWantedState);
   }, [id]);
+
+  async function toggleWanted() {
+    if (!me) return;
+    const next = !wanted;
+    setWantedState(next);
+    try {
+      await setWanted(me, id, next);
+    } catch (e) {
+      setWantedState(!next);
+      Alert.alert((e as Error).message);
+    }
+  }
 
   const photos = reviews.map(firstPhoto).filter((p): p is string => !!p);
   const avg = reviews.length ? reviews.reduce((s, r) => s + Number(r.rating), 0) / reviews.length : null;
@@ -45,7 +62,14 @@ export default function DishScreen() {
         </View>
         <ScorePill rating={avg} />
       </View>
-      <Button title="Review this dish" onPress={() => router.push({ pathname: '/review', params: { dishId: id } })} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Button title="Review this dish" onPress={() => router.push({ pathname: '/review', params: { dishId: id } })} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button variant="ghost" title={wanted ? '✓ Want to try' : '+ Want to try'} onPress={toggleWanted} />
+        </View>
+      </View>
       <Label>{reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}</Label>
       {reviews.length ? reviews.map((r) => <ReviewCard key={r.id} review={r} />) : <Empty title="No reviews yet" body="Yours could be the first." />}
     </ScrollView>
