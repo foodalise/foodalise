@@ -1,6 +1,7 @@
 import { Link, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DishThumb } from '@/components/DishThumb';
 import { FoodBadge } from '@/components/FoodBadge';
@@ -56,6 +57,7 @@ export default function RestaurantScreen() {
   const [checking, setChecking] = useState(false);
   const [website, setWebsite] = useState('');
   const [lookupNote, setLookupNote] = useState<string | null>(null);
+  const [find, setFind] = useState('');
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const me = useAuth().session?.user.id;
   const [wanted, setWanted] = useState<{ place: boolean; dishes: number } | null>(null);
@@ -241,6 +243,12 @@ export default function RestaurantScreen() {
       .sort((a, b) => (a.section ?? '').localeCompare(b.section ?? '') || a.name.localeCompare(b.name)),
   })).filter((c) => c.dishes.length);
   if (retired.length) courses.push({ course: 'No longer on the menu' as (typeof COURSES)[number], dishes: retired });
+  // Menu search: every word typed must appear in the dish name or its menu section.
+  const words = plain(find).split(/\s+/).filter(Boolean);
+  const shown = words.length
+    ? courses.map((c) => ({ ...c, dishes: c.dishes.filter((d) => words.every((w) => plain(`${d.name} ${d.section ?? ''}`).includes(w))) }))
+      .filter((c) => c.dishes.length)
+    : courses;
 
   // Average over every review here, so a dish with more reviews counts for more.
   const reviewCount = [...list, ...retired].reduce((n, d) => n + d.review_count, 0);
@@ -249,7 +257,7 @@ export default function RestaurantScreen() {
     : null;
 
   return (
-    <ScrollView style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 14 }}>
+    <ScrollView style={{ backgroundColor: t.surface }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 16, gap: 14 }}>
       <Stack.Screen options={{
         title: restaurant?.name ?? '',
         headerRight: () => (
@@ -343,7 +351,22 @@ export default function RestaurantScreen() {
           </View>
         </>
       ) : null}
-      {courses.map(({ course, dishes: inCourse }) => (
+      {list.length + retired.length > 5 ? (
+        <View style={[styles.search, { backgroundColor: t.card, borderColor: t.line }]}>
+          <SymbolView name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }} tintColor={t.muted} size={18} />
+          <TextInput value={find} onChangeText={setFind} placeholder="Search the menu" placeholderTextColor={t.muted}
+            returnKeyType="search" autoCorrect={false} style={{ flex: 1, color: t.ink, fontSize: 16 }} />
+          {find ? (
+            <Pressable accessibilityLabel="Clear search" hitSlop={10} onPress={() => setFind('')}>
+              <Text style={{ color: t.muted, fontSize: 16, fontWeight: '700' }}>✕</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      {words.length && !shown.length ? (
+        <Text style={{ color: t.muted }}>No dishes match "{find.trim()}". You can add a dish when you review it here.</Text>
+      ) : null}
+      {shown.map(({ course, dishes: inCourse }) => (
         <View key={course} style={{ gap: 2 }}>
           <View style={[styles.course, { borderBottomColor: t.ink }]}>
             <Text style={[styles.courseTitle, { color: t.ink }]}>{course}</Text>
@@ -382,7 +405,13 @@ export default function RestaurantScreen() {
   );
 }
 
+// Lower case without accents, so "creme" finds "Crème brûlée".
+function plain(text: string) {
+  return (typeof text.normalize === 'function' ? text.normalize('NFD') : text).replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
 const styles = StyleSheet.create({
+  search: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, height: 46, marginTop: 6 },
   actions: { flexDirection: 'row', gap: 8 },
   title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
