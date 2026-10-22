@@ -2,20 +2,22 @@ import { Link, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { BestNearMe } from '@/components/BestNearMe';
 import { Empty, Field, Segmented } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
-type Mode = 'restaurants' | 'people';
+type Mode = 'best' | 'restaurants' | 'people';
 type Person = { id: string; username: string };
 
-// Search restaurants, or people to follow (whose reviews then fill your Feed).
+// The best dishes near you, a restaurant search, or people to follow (whose
+// reviews then fill your Feed).
 export default function Explore() {
   const t = useTheme();
   const me = useAuth().session?.user.id;
-  const [mode, setMode] = useState<Mode>('restaurants');
+  const [mode, setMode] = useState<Mode>('best');
   const [q, setQ] = useState('');
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -34,6 +36,7 @@ export default function Explore() {
     if (term.length < 2) { setRestaurants([]); setPeople([]); return; }
     let cancelled = false;
     const timer = setTimeout(async () => {
+      if (mode === 'best') return;
       if (mode === 'restaurants') {
         const { data, error } = await supabase.from('restaurants')
           .select('id, name, address, postcode, hygiene_rating, menu_source')
@@ -67,15 +70,20 @@ export default function Explore() {
   }
 
   const searched = q.trim().replace(/^@/, '').length >= 2;
+  const tabs = (
+    <Segmented value={mode} onChange={(m) => { setMode(m); setError(null); }}
+      options={[{ value: 'best', label: 'Best near me' }, { value: 'restaurants', label: 'Restaurants' }, { value: 'people', label: 'People' }]} />
+  );
   const header = (
     <View style={{ gap: 10, marginBottom: 8 }}>
-      <Segmented value={mode} onChange={(m) => { setMode(m); setError(null); }}
-        options={[{ value: 'restaurants', label: 'Restaurants' }, { value: 'people', label: 'People' }]} />
+      {tabs}
       <Field placeholder={mode === 'restaurants' ? 'Search a restaurant' : 'Search a username'} value={q} onChangeText={setQ}
         autoCorrect={false} autoCapitalize="none" />
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
     </View>
   );
+
+  if (mode === 'best') return <BestNearMe header={tabs} />;
 
   if (mode === 'people') {
     return (
