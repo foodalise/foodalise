@@ -58,6 +58,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "owner": "foodalise-team",
+    "extra": {
+      "eas": {
+        "projectId": "8b21140b-4a4c-41ff-8250-7dfae4513cad"
+      }
     }
   }
 }
