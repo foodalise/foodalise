@@ -161,12 +161,28 @@ export default function RestaurantScreen() {
     return () => { live = false; };
   }, [due, id, loadRestaurant, loadDishes]);
 
-  // The ⋯ button at the top right.
-  function openMenuOptions() {
+  // The ⋯ button at the top right. The team also gets "Not a place to eat".
+  async function openMenuOptions() {
+    const { data: admin } = await supabase.rpc('is_admin');
     Alert.alert(restaurant?.name ?? 'Menu', undefined, [
       { text: 'Refresh menu', onPress: refreshMenu },
       { text: 'Something wrong with this menu?', onPress: flagMenu },
+      ...(admin ? [{ text: 'Not a place to eat', style: 'destructive' as const, onPress: confirmHide }] : []),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  }
+
+  function confirmHide() {
+    Alert.alert(`Take ${restaurant?.name ?? 'this place'} off Foodalise?`, "It won't come back when the area is imported again.", [
       { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.rpc('admin_hide_place', { place: id });
+          if (error) Alert.alert(error.message);
+          else router.back();
+        },
+      },
     ]);
   }
 
