@@ -14,7 +14,9 @@
 //
 // Websites come from OpenStreetMap (free), then (only if SEARCH_MONTHLY_CAP > 0) a web search by Claude (about 1p
 // each, capped per month). If GOOGLE_PLACES_API_KEY is set, Google Places is tried
-// last, capped to stay inside Google's free monthly allowance.
+// last, capped to stay inside Google's free monthly allowance. Google's terms don't
+// allow keeping what it returns, so a website found through Google is used once to
+// read the menu and never saved; it is looked up again at the next re-read.
 // Sites that build their menu with JavaScript after loading (Square Online, Wix and
 // other ordering sites) arrive empty, so if the plain read finds no dishes, the page
 // is read again through Jina Reader (free), which loads it in a real browser first.
@@ -609,18 +611,24 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     let website: string | null = given ?? r.website;
     if (!website && r.latitude != null && r.longitude != null) website = await websiteFromOsm(r.name, r.latitude, r.longitude);
     if (!website) website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
-    if (!website) website = await websiteFromGoogle(admin, r.name, r.postcode, r.latitude, r.longitude);
+    let fromGoogle = false;
+    if (!website) {
+      website = await websiteFromGoogle(admin, r.name, r.postcode, r.latitude, r.longitude);
+      fromGoogle = !!website;
+    }
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
     const { reachable, dishes, cuisine, halal } = await readWebsite(website);
-    if (!reachable) return await finish('unreadable', 0, website);
+    // Never stored when it came from Google (see the note at the top).
+    const keep = fromGoogle ? null : website;
+    if (!reachable) return await finish('unreadable', 0, keep);
 
     let { data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu, diets, review_count').eq('restaurant_id', r.id);
     const fromSite = (existing ?? []).filter((d) => d.source === 'website');
     // Too few dishes compared with last time: probably a half-loaded page, so keep the menu we have.
     if (!dishes.length || dishes.length < fromSite.filter((d) => d.on_menu).length * KEEP_IF_FEWER_THAN) {
-      return await finish('no_menu', 0, website);
+      return await finish('no_menu', 0, keep);
     }
 
     // Dishes already listed: show the ones still on the menu (with today's section and
@@ -663,7 +671,7 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
 
     // Only remember the website once a menu was actually read from it.
     const update: Record<string, string | string[]> = { menu_checked_at: new Date().toISOString() };
-    if (website !== r.website) update.website = website;
+    if (keep && keep !== r.website) update.website = keep;
     if (!r.cuisine) update.cuisine = cuisine ?? await classifyCuisine(r.name, dishes.map((d) => d.name)).catch(() => 'Other');
     if (halal) {
       const { data: now } = await admin.from('restaurants').select('diets').eq('id', r.id).single();
@@ -671,7 +679,7 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     }
     if (r.menu_source === 'none' || r.menu_source === 'users') update.menu_source = 'website';
     await admin.from('restaurants').update(update).eq('id', r.id);
-    return await finish('done', rows.length, website);
+    return await finish('done', rows.length, keep);
   } catch (e) {
     console.error('fetch-menu failed', r.id, e);
     return await finish('error');

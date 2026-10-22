@@ -44,6 +44,8 @@ export async function postReview({ userId, dishId, taste, presentation, value, b
     .select('id').single();
   if (error || !review) {
     if (photoPath) await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
+    // P0001: a daily limit message from the database, already in plain words.
+    if (error?.code === 'P0001') throw new Error(error.message);
     throw new Error(`Couldn't post the review: ${error?.message ?? 'unknown error'}`);
   }
 
