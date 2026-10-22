@@ -49,7 +49,7 @@ async function askFetchMenu(body: { restaurantId: string; website?: string; refr
 
 export const MENU_PROBLEMS = ['Dishes are missing', "Lists dishes they don't serve", 'Prices are wrong', "It's not this restaurant's menu"];
 
-// "Something wrong with this menu?": the Foodalise team sees these in menu_reports_to_check.
+// "Something wrong with this menu?": the Foodalise team sees these on the dashboard's Menus tab.
 export async function reportMenu(restaurantId: string, problem: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Please sign in again.');
