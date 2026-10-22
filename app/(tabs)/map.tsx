@@ -1,5 +1,5 @@
 import * as Location from 'expo-location';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
@@ -69,7 +69,10 @@ export default function MapScreen() {
   const [wishlist, setWishlist] = useState<WishPlace[]>([]);
   const [dismissed, setDismissed] = useState<string | null>(null);
 
-  const locate = useCallback(async () => {
+  const centred = useRef(false);
+
+  // Finds where you are; `move` also takes the map there.
+  const locate = useCallback(async (move = true) => {
     const { granted } = await Location.requestForegroundPermissionsAsync();
     setLocationOff(!granted);
     if (!granted) return;
@@ -78,14 +81,22 @@ export default function MapScreen() {
       ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
     const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
     setMe(coords);
-    map.current?.moveTo({ ...coords, latitudeDelta: 0.02, longitudeDelta: 0.02 });
+    if (move) map.current?.moveTo({ ...coords, latitudeDelta: 0.02, longitudeDelta: 0.02 });
   }, []);
 
-  // Every time the Map tab is opened, centre it on where you are.
+  // The first time the Map tab is opened it centres on where you are. After that it
+  // stays where you left it (say, after peeking at a restaurant's dishes); the arrow
+  // button, or tapping the Map tab again while on it, brings you back.
   useFocusEffect(useCallback(() => {
-    locate().catch(() => setLocationOff(true));
+    locate(!centred.current).catch(() => setLocationOff(true));
+    centred.current = true;
     loadWishlist().then(setWishlist);
   }, [locate]));
+
+  const navigation = useNavigation();
+  useEffect(() => navigation.addListener('tabPress' as never, () => {
+    if (navigation.isFocused()) locate().catch(() => setLocationOff(true));
+  }), [navigation, locate]);
 
   // The closest restaurant on your wishlist, if one is a short walk away.
   const nearby = me ? wishlist
