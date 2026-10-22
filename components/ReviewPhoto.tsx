@@ -44,7 +44,8 @@ export function ReviewPhoto({ uri, width, height, background, onDoubleTap, onHol
   const doubleTap = Gesture.Tap().numberOfTaps(2).maxDelay(250).runOnJS(true).onEnd((_e, ok) => {
     if (!ok) return;
     setBurst((n) => n + 1);
-    pop.value = withSequence(withTiming(1, { duration: 120 }), withDelay(950, withTiming(0, { duration: 250 })));
+    // Stays up until the food has settled in the bowl, then fades out gently (about 1.8 seconds in all).
+    pop.value = withSequence(withTiming(1, { duration: 120 }), withDelay(1300, withTiming(0, { duration: 400 })));
     onDoubleTap();
   });
   const hold = Gesture.LongPress().minDuration(450).runOnJS(true).onStart(() => onHold());
