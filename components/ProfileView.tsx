@@ -282,12 +282,22 @@ export function ProfileView({ userId }: { userId: string }) {
       ) : null}
       <View style={[styles.stats, { backgroundColor: t.card, borderColor: t.line }]}>
         {([[reviews.length, reviews.length === 1 ? 'dish' : 'dishes'], [restaurants, restaurants === 1 ? 'place' : 'places'],
-          [formatScore(avg), 'avg'], [followers, followers === 1 ? 'follower' : 'followers'], [following, 'following']] as const).map(([n, l]) => (
-          <View key={l} style={styles.stat}>
-            <Text style={[styles.statNum, { color: t.ink }]}>{n}</Text>
-            <Text style={{ color: t.muted, fontSize: 12 }}>{l}</Text>
-          </View>
-        ))}
+          [formatScore(avg), 'avg'], [followers, followers === 1 ? 'follower' : 'followers'], [following, 'following']] as const).map(([n, l]) => {
+          // Followers and following open the list of people.
+          const tab = l === 'following' ? 'following' : l.startsWith('follower') ? 'followers' : null;
+          const inner = (
+            <>
+              <Text style={[styles.statNum, { color: t.ink }]}>{n}</Text>
+              <Text style={{ color: t.muted, fontSize: 12 }}>{l}</Text>
+            </>
+          );
+          return tab ? (
+            <Pressable key={l} style={({ pressed }) => [styles.stat, { opacity: pressed ? 0.6 : 1 }]} accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/follows', params: { id: userId, tab, username: username ?? '' } })}>
+              {inner}
+            </Pressable>
+          ) : <View key={l} style={styles.stat}>{inner}</View>;
+        })}
       </View>
       {isMe && editingBio === null ? (
         <View style={{ flexDirection: 'row', gap: 8 }}>

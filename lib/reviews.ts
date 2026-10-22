@@ -2,14 +2,16 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 import { PHOTO_BUCKET, supabase } from './supabase';
 
-// Phone photos are several megabytes; 1080px wide is plenty for the app and keeps
-// each photo around 150-300KB, so storage lasts far longer.
-const PHOTO_WIDTH = 1080;
+// Phone photos are several megabytes. 1440px wide stays sharp on the biggest
+// iPhone screens (the feed shows photos edge to edge) while keeping each photo
+// around 300-500KB. The photo is compressed only once, here, at high quality.
+const PHOTO_WIDTH = 1440;
 
 async function shrinkPhoto(photo: { uri: string; width?: number | null }) {
-  if (photo.width && photo.width <= PHOTO_WIDTH) return photo.uri;
-  const image = await ImageManipulator.manipulate(photo.uri).resize({ width: PHOTO_WIDTH }).renderAsync();
-  const saved = await image.saveAsync({ compress: 0.7, format: SaveFormat.JPEG });
+  const edit = ImageManipulator.manipulate(photo.uri);
+  if (!photo.width || photo.width > PHOTO_WIDTH) edit.resize({ width: PHOTO_WIDTH });
+  const image = await edit.renderAsync();
+  const saved = await image.saveAsync({ compress: 0.85, format: SaveFormat.JPEG });
   return saved.uri;
 }
 
