@@ -293,6 +293,7 @@ export function ProfileView({ userId }: { userId: string }) {
         </View>
       ) : null}
       {iBlocked ? null : <Badges userId={userId} isMe={isMe} />}
+      {isMe && reviews.length ? <Button variant="ghost" title="Make a top list to share" onPress={() => router.push('/top-list')} /> : null}
       {!isMe && me && !iBlocked && reviews.length ? (
         <View style={[styles.taste, { borderColor: t.line }]}>
           {taste ? (

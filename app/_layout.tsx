@@ -70,6 +70,7 @@ function RootLayoutNav() {
           <Stack.Screen name="comments/[id]" options={{ title: 'Comments' }} />
           <Stack.Screen name="share/[id]" options={{ title: 'Share', presentation: 'modal' }} />
           <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
+          <Stack.Screen name="top-list" options={{ title: 'Your top list' }} />
           <Stack.Screen name="welcome" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
