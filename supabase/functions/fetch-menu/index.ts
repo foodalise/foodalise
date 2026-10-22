@@ -8,8 +8,9 @@
 // A re-read that finds far fewer dishes than before is ignored, in case the site was
 // half-loaded.
 //
-//   POST { restaurantId: string, website?: string, refresh?: boolean } -> { status: string, added: number }
+//   POST { restaurantId: string, website?: string, refresh?: boolean, menuLink?: string } -> { status: string, added: number }
 //   website: the restaurant's site, typed in by a diner when we couldn't find it.
+//   menuLink: the Foodalise team only: read the menu from this page or PDF (not saved as the website).
 //   refresh: a diner tapped "Refresh menu". Statuses only it returns: too_soon, already_refreshed.
 //
 // Websites come from OpenStreetMap (free), then (only if SEARCH_MONTHLY_CAP > 0) a web search by Claude (about 1p
@@ -266,8 +267,10 @@ function menuLinks(page: Page) {
     try { href = new URL(m[1], base); } catch { continue; }
     if (!/^https?:$/.test(href.protocol)) continue;
     const isPdf = href.pathname.toLowerCase().endsWith('.pdf');
-    if (href.hostname !== base.hostname && !isPdf) continue;
     const hay = `${href.pathname} ${htmlToText(m[2])}`.toLowerCase();
+    // Another site only when the link says it's the menu (many restaurants keep theirs on
+    // a menu app, like Regency Club on Served), and never a delivery or review site.
+    if (href.hostname !== base.hostname && !isPdf && !(/menu/.test(hay) && isOwnSite(href.href))) continue;
     let score = /menu/.test(hay) ? 3 : 0;
     if (/food|eat|dinner|lunch|brunch|drinks/.test(hay)) score += 1;
     if (score && isPdf) score += 1;
@@ -289,14 +292,17 @@ async function getRenderedPage(url: string): Promise<Page | null> {
   return text.length > 200 ? { url, text } : null;
 }
 
-// Menu-looking links in rendered text (Jina writes links as [text](url)).
+// Menu-looking links in rendered text (Jina writes links as [text](url)): on the same
+// site, or on another one (a menu app) when the link says it's the menu.
 function renderedMenuLinks(page: Page) {
   const base = new URL(page.url);
   const found: string[] = [];
   for (const m of (page.text ?? '').matchAll(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g)) {
     try {
       const href = new URL(m[2]);
-      if (href.hostname === base.hostname && /menu|order|food/i.test(`${m[1]} ${href.pathname}`) && href.href !== base.href && !found.includes(href.href)) found.push(href.href);
+      const hay = `${m[1]} ${href.pathname}`;
+      const wanted = href.hostname === base.hostname ? /menu|order|food/i.test(hay) : /menu/i.test(hay) && isOwnSite(href.href);
+      if (wanted && href.href !== base.href && !found.includes(href.href)) found.push(href.href);
     } catch { /* not a link */ }
   }
   return found.slice(0, 1); // keeps the whole lookup well inside the function time limit
@@ -415,11 +421,15 @@ async function classifyCuisine(name: string, dishes: string[]): Promise<string> 
   return CUISINES.includes(cuisine) ? cuisine : 'Other';
 }
 
-// Reads the menu from a website: the page itself and its menu links, then, if that
-// finds nothing, the page as a browser shows it. `reachable` is false if neither loaded.
+// Reads the menu from a website: its menu pages and PDFs, then the homepage, then, if
+// that finds little, the pages as a browser shows them. `reachable` is false if nothing loaded.
+// Homepages often show just a few "favourites" (Regency Club showed 10 of its dishes and
+// kept the real menu on a menu app), so a homepage is never taken as the whole menu
+// while a menu page or PDF can be read.
+const FEW_DISHES = 25; // fewer than this from the homepage alone: look harder
 async function readWebsite(website: string): Promise<{ reachable: boolean } & Menu> {
   const home = await getPage(website).catch(() => null);
-  const pages = home ? [home] : [];
+  const menuPages: Page[] = [];
   const tried = new Set([website]);
   // Follow menu links from the homepage, then one step further, since many sites
   // keep their menus as PDFs on a separate "Menus" page.
@@ -427,25 +437,31 @@ async function readWebsite(website: string): Promise<{ reachable: boolean } & Me
   for (let hop = 0; hop < 2 && next.length; hop++) {
     const found: string[] = [];
     for (const link of next) {
-      if (tried.has(link) || pages.length >= MAX_PAGES) continue;
+      if (tried.has(link) || menuPages.length >= MAX_PAGES - 1) continue;
       tried.add(link);
-      const page = await getPage(link).catch(() => null);
+      let page = await getPage(link).catch(() => null);
+      // A menu app that draws its menu with JavaScript arrives as an empty "Loading..." page.
+      if (page?.html && (page.text ?? '').length < 300) page = await getRenderedPage(link) ?? page;
       if (!page) continue;
-      pages.push(page);
+      menuPages.push(page);
       if (page.html) found.push(...menuLinks(page));
     }
     next = found;
   }
-  let menu = pages.length ? await readMenu(pages) : NO_MENU;
+  const [fromMenus, fromHome] = await Promise.all([
+    menuPages.length ? readMenu(menuPages) : NO_MENU,
+    home ? readMenu([home]) : NO_MENU,
+  ]);
+  let menu = combine(fromMenus, fromHome);
 
-  // Nothing found: the menu may be drawn by JavaScript, so read it as a browser sees it.
+  // Little or nothing found: the menu may be drawn by JavaScript, so read it as a browser sees it.
   let first: Page | null = null;
-  if (!menu.dishes.length) {
+  if (!fromMenus.dishes.length && menu.dishes.length < FEW_DISHES) {
     const rendered: Page[] = [];
     first = await getRenderedPage(website);
     if (first) {
       rendered.push(first);
-      for (const link of renderedMenuLinks(first)) {
+      for (const link of renderedMenuLinks(first).filter((u) => !tried.has(u))) {
         const page = await getRenderedPage(link);
         if (!page) continue;
         rendered.push(page);
@@ -455,10 +471,22 @@ async function readWebsite(website: string): Promise<{ reachable: boolean } & Me
           if (doc) rendered.push(doc);
         }
       }
-      menu = await readMenu(rendered);
+      const seen = await readMenu(rendered);
+      if (cleanDishes(seen.dishes).length > cleanDishes(menu.dishes).length) menu = seen;
     }
   }
-  return { reachable: !!(home || first), ...menu, dishes: cleanDishes(menu.dishes) };
+  return { reachable: !!(home || first || menuPages.length), ...menu, dishes: cleanDishes(menu.dishes) };
+}
+
+// The menu pages' dishes, plus any homepage dishes they don't already list. Menu pages
+// come first so their headings win over the homepage's ("Mains", not "Customer Favourites").
+function combine(fromMenus: Menu, fromHome: Menu): Menu {
+  const extra = fromHome.dishes.filter((h) => !fromMenus.dishes.some((d) => sameDish(d.name, h.name)));
+  return {
+    dishes: [...fromMenus.dishes, ...extra],
+    cuisine: fromMenus.cuisine ?? fromHome.cuisine,
+    halal: fromMenus.halal || fromHome.halal,
+  };
 }
 
 // The same dish written differently: the same words, or (with at least two words) one
@@ -534,11 +562,13 @@ Deno.serve(async (req) => {
   const { data: { user } } = await admin.auth.getUser(token);
   if (!user) return json({ error: 'Please sign in again.' }, 401);
 
-  const { restaurantId, website: typed, refresh: wantsRefresh, cuisine: wantsCuisine } = await req.json().catch(() => ({}));
-  const refresh = wantsRefresh === true;
+  const { restaurantId, website: typed, refresh: wantsRefresh, cuisine: wantsCuisine, menuLink: typedLink } = await req.json().catch(() => ({}));
+  const refresh = wantsRefresh === true || !!typedLink;
   if (typeof restaurantId !== 'string') return json({ error: 'Missing restaurant.' }, 400);
   const given = cleanWebsite(typed);
   if (typed && !given) return json({ status: 'bad_website', added: 0 });
+  const menuLink = cleanWebsite(typedLink);
+  if (typedLink && !menuLink) return json({ status: 'bad_website', added: 0 });
 
   const { data: r } = await admin.from('restaurants')
     .select('id, name, address, postcode, latitude, longitude, website, menu_source, chain_slug, menu_checked_at, cuisine').eq('id', restaurantId).single();
@@ -563,6 +593,7 @@ Deno.serve(async (req) => {
   // no once-a-month wait, no one-refresh-each, no daily limit on refreshes.
   const { data: team } = refresh ? await admin.from('admins').select('user_id').eq('user_id', user.id).maybeSingle() : { data: null };
   const anytime = !!team;
+  if (menuLink && !anytime) return json({ error: 'Only the Foodalise team can do that.' }, 403);
 
   // Each diner gets one "Refresh menu" per restaurant. Only used up once a read actually starts.
   const claimRefresh = async () => {
@@ -573,7 +604,7 @@ Deno.serve(async (req) => {
 
   // A chain branch gets the chain's menu, unless a diner typed in a website for it.
   // It's only read when a diner asks for a refresh, or the branch has no menu at all.
-  if (r.chain_slug && !given) {
+  if (r.chain_slug && !given && !menuLink) {
     if (!refresh && r.menu_source !== 'none') return json({ status: 'done', added: 0 });
     return await refreshChain(admin, r.chain_slug, claimRefresh, anytime);
   }
@@ -583,7 +614,7 @@ Deno.serve(async (req) => {
     // Each restaurant's menu can be refreshed at most once a month.
     const lastRead = r.menu_checked_at ?? (last?.status === 'done' ? last.attempted_at : null);
     if (!anytime && lastRead && Date.now() - new Date(lastRead).getTime() < REFRESH_EVERY_DAYS * 864e5) return json({ status: 'too_soon', added: 0 });
-    if (!r.website) return json({ status: 'no_website', added: 0 });
+    if (!r.website && !menuLink) return json({ status: 'no_website', added: 0 });
     const used = await claimRefresh();
     if (used) return used;
   } else if (last && !given && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {
@@ -601,7 +632,7 @@ Deno.serve(async (req) => {
     await admin.from('menu_fetches').update({ status, dishes_added: added, website }).eq('restaurant_id', r.id);
   };
 
-  EdgeRuntime.waitUntil(readRestaurant(admin, r, given, finish));
+  EdgeRuntime.waitUntil(readRestaurant(admin, r, given, finish, menuLink));
   return json({ status: 'running', added: 0 });
 });
 
@@ -612,8 +643,14 @@ type RestaurantRow = {
 
 // Finds the restaurant's website, reads its menu and brings its dishes up to date.
 async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, given: string | null,
-  finish: (status: string, added?: number, website?: string | null) => Promise<void>) {
+  finish: (status: string, added?: number, website?: string | null) => Promise<void>, menuLink: string | null = null) {
   try {
+    // A menu link from the team is read in place of the website, and isn't saved as it.
+    if (menuLink) {
+      const read = await readWebsite(menuLink);
+      if (!read.reachable) return await finish('unreadable', 0, r.website);
+      return await saveMenu(admin, r, read, r.website, finish);
+    }
     let website: string | null = given ?? r.website;
     if (!website && r.latitude != null && r.longitude != null) website = await websiteFromOsm(r.name, r.latitude, r.longitude);
     if (!website) website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
@@ -625,11 +662,21 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
-    const { reachable, dishes, cuisine, halal } = await readWebsite(website);
+    const read = await readWebsite(website);
     // Never stored when it came from Google (see the note at the top).
     const keep = fromGoogle ? null : website;
-    if (!reachable) return await finish('unreadable', 0, keep);
+    if (!read.reachable) return await finish('unreadable', 0, keep);
+    return await saveMenu(admin, r, read, keep, finish);
+  } catch (e) {
+    console.error('fetch-menu failed', r.id, e);
+    return await finish('error');
+  }
+}
 
+// Brings the restaurant's dishes up to date with a menu just read; `keep` is the website to remember.
+async function saveMenu(admin: SupabaseClient<any>, r: RestaurantRow, { dishes, cuisine, halal }: Menu, keep: string | null,
+  finish: (status: string, added?: number, website?: string | null) => Promise<void>) {
+  try {
     let { data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu, diets, review_count').eq('restaurant_id', r.id);
     const fromSite = (existing ?? []).filter((d) => d.source === 'website');
     // Too few dishes compared with last time: probably a half-loaded page, so keep the menu we have.

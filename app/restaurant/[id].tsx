@@ -33,6 +33,7 @@ const REFRESH_RESULT: Record<string, string> = {
   no_menu: "We couldn't read a newer menu from their website, so we've kept this one.",
   unreadable: "Their website wouldn't let us in, so we've kept this menu.",
   limit: "You've refreshed lots of menus today. Try again tomorrow.",
+  bad_website: "That link can't be used. Check it's the restaurant's own menu page or PDF.",
   error: 'Something went wrong refreshing the menu. Try again later.',
 };
 
@@ -171,13 +172,14 @@ export default function RestaurantScreen() {
     return () => { live = false; };
   }, [due, id, loadRestaurant, loadDishes]);
 
-  // The ⋯ button at the top right. The team also gets "Change food type" and "Not a place to eat".
+  // The ⋯ button at the top right. The team also gets "Read menu from a link", "Change food type" and "Not a place to eat".
   async function openMenuOptions() {
     const { data: admin } = await supabase.rpc('is_admin');
     Alert.alert(restaurant?.name ?? 'Menu', undefined, [
-      { text: 'Refresh menu', onPress: refreshMenu },
+      { text: 'Refresh menu', onPress: () => refreshMenu() },
       { text: 'Something wrong with this menu?', onPress: flagMenu },
       ...(admin ? [
+        { text: 'Read menu from a link', onPress: askMenuLink },
         { text: 'Change food type', onPress: () => router.push({ pathname: '/food-type', params: { id, current: restaurant?.food_type ?? '' } }) },
         { text: 'Not a place to eat', style: 'destructive' as const, onPress: confirmHide },
       ] : []),
@@ -199,9 +201,17 @@ export default function RestaurantScreen() {
     ]);
   }
 
-  async function refreshMenu() {
+  // The team can point the reader at the real menu (a page or PDF) when the website read gets it wrong.
+  function askMenuLink() {
+    Alert.prompt('Read menu from a link', 'Paste a link to their menu page or menu PDF.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Read menu', onPress: (link?: string) => { if (link?.trim()) refreshMenu(link.trim()); } },
+    ], 'plain-text', '', 'url');
+  }
+
+  async function refreshMenu(menuLink?: string) {
     setChecking(true);
-    const { status, added } = await fetchWebsiteMenu(id, undefined, true);
+    const { status, added } = await fetchWebsiteMenu(id, undefined, true, menuLink);
     setChecking(false);
     if (status === 'done') {
       loadRestaurant();
