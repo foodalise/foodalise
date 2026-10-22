@@ -1,7 +1,7 @@
 import { Link, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SymbolView } from 'expo-symbols';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 
 import { DishThumb } from '@/components/DishThumb';
 import { FoodBadge } from '@/components/FoodBadge';
@@ -58,6 +58,11 @@ export default function RestaurantScreen() {
   const [website, setWebsite] = useState('');
   const [lookupNote, setLookupNote] = useState<string | null>(null);
   const [find, setFind] = useState('');
+  const [finding, setFinding] = useState(false);
+  const { height } = useWindowDimensions();
+  const scroller = useRef<ScrollView>(null);
+  const searchY = useRef(0);
+  const dragging = useRef(false);
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const me = useAuth().session?.user.id;
   const [wanted, setWanted] = useState<{ place: boolean; dishes: number } | null>(null);
@@ -256,8 +261,21 @@ export default function RestaurantScreen() {
     ? [...list, ...retired].reduce((sum, d) => sum + (d.avg_rating != null ? Number(d.avg_rating) * d.review_count : 0), 0) / reviewCount
     : null;
 
+  // Tapping the menu search lifts it to the top so the keyboard can't cover it or the results.
+  function startFinding() {
+    setFinding(true);
+    dragging.current = false;
+    setTimeout(() => scroller.current?.scrollTo({ y: Math.max(0, searchY.current - 12), animated: true }), 50);
+  }
+
   return (
-    <ScrollView style={{ backgroundColor: t.surface }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 16, gap: 14 }}>
+    <ScrollView ref={scroller} style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 14 }}
+      keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets scrollEventThrottle={32}
+      onScrollBeginDrag={() => { dragging.current = true; }}
+      // Scrolling back up past the search box puts the keyboard away.
+      onScroll={(e) => {
+        if (finding && dragging.current && e.nativeEvent.contentOffset.y < searchY.current - 60) Keyboard.dismiss();
+      }}>
       <Stack.Screen options={{
         title: restaurant?.name ?? '',
         headerRight: () => (
@@ -352,10 +370,10 @@ export default function RestaurantScreen() {
         </>
       ) : null}
       {list.length + retired.length > 5 ? (
-        <View style={[styles.search, { backgroundColor: t.card, borderColor: t.line }]}>
+        <View onLayout={(e) => { searchY.current = e.nativeEvent.layout.y; }} style={[styles.search, { backgroundColor: t.card, borderColor: t.line }]}>
           <SymbolView name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }} tintColor={t.muted} size={18} />
           <TextInput value={find} onChangeText={setFind} placeholder="Search the menu" placeholderTextColor={t.muted}
-            returnKeyType="search" autoCorrect={false} style={{ flex: 1, color: t.ink, fontSize: 16 }} />
+            onFocus={startFinding} onBlur={() => setFinding(false)} returnKeyType="search" autoCorrect={false} style={{ flex: 1, color: t.ink, fontSize: 16 }} />
           {find ? (
             <Pressable accessibilityLabel="Clear search" hitSlop={10} onPress={() => setFind('')}>
               <Text style={{ color: t.muted, fontSize: 16, fontWeight: '700' }}>✕</Text>
@@ -401,6 +419,8 @@ export default function RestaurantScreen() {
       <Text style={{ color: t.muted, fontSize: 11, marginTop: 8 }}>
         Restaurant details and hygiene rating from the Food Standards Agency, under the Open Government Licence v3.0.
       </Text>
+      {/* Room below a short list of results, so the search box can still sit at the top. */}
+      {finding || words.length ? <View style={{ height }} /> : null}
     </ScrollView>
   );
 }
