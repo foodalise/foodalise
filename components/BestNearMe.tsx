@@ -6,6 +6,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Chips, Empty, Field, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
+import { DIETS } from '@/lib/cuisines';
 import { photoUrl, supabase } from '@/lib/supabase';
 
 type BestDish = {
@@ -30,6 +31,7 @@ export function BestNearMe({ header }: { header: ReactElement }) {
   const t = useTheme();
   const [q, setQ] = useState('');
   const [distance, setDistance] = useState(DISTANCES[0]);
+  const [diet, setDiet] = useState<string | null>(null);
   const [here, setHere] = useState<{ latitude: number; longitude: number } | null>(null);
   const [noLocation, setNoLocation] = useState(false);
   const [dishes, setDishes] = useState<BestDish[] | null>(null);
@@ -50,20 +52,21 @@ export function BestNearMe({ header }: { header: ReactElement }) {
     let cancelled = false;
     const timer = setTimeout(async () => {
       const { data, error } = await supabase.rpc('best_dishes_near', {
-        lat: here.latitude, lng: here.longitude, km: distance.km, term: q.trim() || null, max_rows: 40,
+        lat: here.latitude, lng: here.longitude, km: distance.km, term: q.trim() || null, max_rows: 40, diet,
       });
       if (cancelled) return;
       setError(error ? "Couldn't load dishes. Check your connection." : null);
       setDishes((data as BestDish[] | null) ?? []);
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [here, distance, q]);
+  }, [here, distance, q, diet]);
 
   const top = (
     <View style={{ gap: 10, marginBottom: 8 }}>
       {header}
       <Field placeholder="Try burger, curry, pizza…" value={q} onChangeText={setQ} autoCorrect={false} autoCapitalize="none" />
       <Chips items={DISTANCES.map((d) => ({ key: d.key, label: d.label, on: d.key === distance.key, onPress: () => setDistance(d) }))} />
+      <Chips items={DIETS.map((d) => ({ key: d.key, label: d.label, on: diet === d.key, onPress: () => setDiet(diet === d.key ? null : d.key) }))} />
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
     </View>
   );
@@ -71,6 +74,8 @@ export function BestNearMe({ header }: { header: ReactElement }) {
   const empty = noLocation
     ? <Empty title="Turn on location" body="Best near me needs your location to find dishes around you. You can switch it on in Settings." />
     : dishes === null ? null
+    : diet
+      ? <Empty title="Nothing reviewed nearby yet" body="Try a bigger distance, or turn off the diet filter. Diets come from restaurant menus, so some places may be missing." />
     : q.trim()
       ? <Empty title={`No ${q.trim()} reviewed nearby yet`} body="Try a bigger distance, or be the first to review one." />
       : <Empty title="No dishes reviewed nearby yet" body="Try a bigger distance, or be the first to review a dish around here." />;
