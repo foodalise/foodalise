@@ -9,6 +9,37 @@ import { photoUrl } from '@/lib/supabase';
 
 export type RestaurantMapHandle = { moveTo: (region: Region) => void };
 
+type LatLng = { latitude: number; longitude: number };
+
+// The FSA places every business at its postcode's centre, so places sharing a postcode
+// (a parade of shops, a food court) land on exactly the same spot and only the top pin
+// can be seen or tapped. Places on the same spot are fanned out in a small circle,
+// sized to the zoom so the pins don't overlap, and close back up as you zoom out.
+function spread(restaurants: MapRestaurant[], span: number): Record<string, LatLng> {
+  const groups = new Map<string, MapRestaurant[]>();
+  for (const r of restaurants) {
+    const key = `${r.latitude.toFixed(4)},${r.longitude.toFixed(4)}`; // within about 10m
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  const spots: Record<string, LatLng> = {};
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      spots[group[0].id] = { latitude: group[0].latitude, longitude: group[0].longitude };
+      continue;
+    }
+    const lat = group.reduce((s, r) => s + r.latitude, 0) / group.length;
+    const lng = group.reduce((s, r) => s + r.longitude, 0) / group.length;
+    // About a pin's width at this zoom, wider when many share the spot.
+    const radius = span * 0.05 * Math.max(1, group.length / 6);
+    const lngScale = Math.cos((lat * Math.PI) / 180);
+    [...group].sort((a, b) => a.id.localeCompare(b.id)).forEach((r, i) => {
+      const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
+      spots[r.id] = { latitude: lat + radius * Math.sin(angle), longitude: lng + (radius * Math.cos(angle)) / lngScale };
+    });
+  }
+  return spots;
+}
+
 type Props = {
   restaurants: MapRestaurant[];
   covers: Record<string, string>; // restaurant id -> a food photo, shown as its pin
@@ -25,6 +56,8 @@ export const RestaurantMap = forwardRef<RestaurantMapHandle, Props>(function Res
   // A move asked for before the map has loaded is ignored by the map, so hold it until it's ready.
   const ready = useRef(false);
   const pending = useRef<Region | null>(null);
+  const [span, setSpan] = useState(LONDON.latitudeDelta);
+  const spots = spread(restaurants, span);
   useImperativeHandle(ref, () => ({
     moveTo: (region) => {
       if (ready.current) map.current?.animateToRegion(region, 400);
@@ -45,18 +78,18 @@ export const RestaurantMap = forwardRef<RestaurantMapHandle, Props>(function Res
       userInterfaceStyle="dark"
       showsUserLocation={showUser}
       showsPointsOfInterests={false}
-      onRegionChangeComplete={onRegionChange}
+      onRegionChangeComplete={(region) => { setSpan(region.latitudeDelta); onRegionChange(region); }}
       onPress={(e) => { if (e.nativeEvent.action !== 'marker-press') onSelect(null); }}>
       {restaurants.map((r) => {
         const selected = r.id === selectedId;
         const cover = covers[r.id];
         return cover ? (
-          <PhotoPin key={`${r.id}-${selected}`} restaurant={r} path={cover} selected={selected} onPress={() => onSelect(r.id)} />
+          <PhotoPin key={`${r.id}-${selected}`} restaurant={r} coordinate={spots[r.id]} path={cover} selected={selected} onPress={() => onSelect(r.id)} />
         ) : (
           <Marker
             // Re-mount when selection changes so the pin redraws with tracking off.
             key={`${r.id}-${selected}`}
-            coordinate={{ latitude: r.latitude, longitude: r.longitude }}
+            coordinate={spots[r.id]}
             tracksViewChanges={false}
             zIndex={selected ? 3 : 1}
             onPress={() => onSelect(r.id)}>
@@ -74,14 +107,14 @@ export const RestaurantMap = forwardRef<RestaurantMapHandle, Props>(function Res
 
 // A restaurant with photos: a round food photo in an orange ring, its score underneath.
 // The marker keeps redrawing until the photo has loaded, then stops to save battery.
-function PhotoPin({ restaurant: r, path, selected, onPress }: {
-  restaurant: MapRestaurant; path: string; selected: boolean; onPress: () => void;
+function PhotoPin({ restaurant: r, coordinate, path, selected, onPress }: {
+  restaurant: MapRestaurant; coordinate: LatLng; path: string; selected: boolean; onPress: () => void;
 }) {
   const t = useTheme();
   const [loaded, setLoaded] = useState(false);
   const size = selected ? 64 : 50;
   return (
-    <Marker coordinate={{ latitude: r.latitude, longitude: r.longitude }} tracksViewChanges={!loaded}
+    <Marker coordinate={coordinate} tracksViewChanges={!loaded}
       zIndex={selected ? 3 : 2} onPress={onPress} anchor={{ x: 0.5, y: 0.5 }}>
       <View style={{ alignItems: 'center' }}>
         <View style={[styles.photoRing, { width: size, height: size, borderRadius: size / 2, borderColor: t.accent, backgroundColor: t.card }]}>

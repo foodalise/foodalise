@@ -25,8 +25,12 @@ type Row = Omit<MapRestaurant, 'rating' | 'reviews'> & { dishes: { review_count:
 // Central London, used until we know where the user is.
 export const LONDON: Region = { latitude: 51.5115, longitude: -0.13, latitudeDelta: 0.04, longitudeDelta: 0.04 };
 
+// Most pins the map draws at once; more than this gets slow on a phone.
+const MAP_LIMIT = 300;
+
 // Restaurants inside the visible part of the map that match the filters, scored by
-// the average of every review across their dishes.
+// the average of every review across their dishes. `more` is true when the area
+// holds more than the map can draw, so the app can ask you to zoom in.
 export async function restaurantsIn(region: Region, filters: MapFilters = NO_FILTERS) {
   const { latitude: lat, longitude: lng, latitudeDelta: dLat, longitudeDelta: dLng } = region;
   let query = supabase.from('restaurants')
@@ -36,13 +40,15 @@ export async function restaurantsIn(region: Region, filters: MapFilters = NO_FIL
   if (filters.cuisines.length) query = query.in('cuisine', filters.cuisines);
   if (filters.prices.length) query = query.in('price_level', filters.prices);
   if (filters.diets.length) query = query.contains('diets', filters.diets);
-  const { data, error } = await query.limit(filters.minRating != null ? 400 : 200).returns<Row[]>();
+  const limit = filters.minRating != null ? MAP_LIMIT * 2 : MAP_LIMIT;
+  const { data, error } = await query.limit(limit).returns<Row[]>();
   if (error) throw error;
-  return (data ?? []).map(({ dishes, ...r }): MapRestaurant => {
+  const places = (data ?? []).map(({ dishes, ...r }): MapRestaurant => {
     const reviews = dishes.reduce((n, d) => n + d.review_count, 0);
     const total = dishes.reduce((s, d) => s + (d.avg_rating ?? 0) * d.review_count, 0);
     return { ...r, reviews, rating: reviews ? total / reviews : null };
   }).filter((r) => filters.minRating == null || (r.rating != null && r.rating >= filters.minRating));
+  return { places, more: (data ?? []).length >= limit };
 }
 
 export function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {

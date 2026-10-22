@@ -68,6 +68,7 @@ export default function MapScreen() {
   const region = useRef<Region | null>(null);
   const [wishlist, setWishlist] = useState<WishPlace[]>([]);
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const [tooMany, setTooMany] = useState(false);
 
   const centred = useRef(false);
 
@@ -112,9 +113,10 @@ export default function MapScreen() {
     region.current = area;
     const id = ++request.current;
     try {
-      const found = await restaurantsIn(area, filters);
+      const { places: found, more } = await restaurantsIn(area, filters);
       if (id !== request.current) return;
       setRestaurants(found);
+      setTooMany(more);
       setError(null);
       const rated = found.filter((r) => r.reviews > 0).map((r) => r.id).slice(0, 60);
       const pics = await coverPhotos(rated);
@@ -221,9 +223,9 @@ export default function MapScreen() {
             </Pressable>
           </Pressable>
         ) : null}
-        {(locationOff || error) && !hits.length ? (
+        {(locationOff || error || tooMany) && !hits.length ? (
           <Text style={[styles.banner, { backgroundColor: t.card, color: error ? t.lo : t.muted }]}>
-            {error ?? 'Location is off, so the map starts in central London.'}
+            {error ?? (tooMany ? 'Lots of places here. Zoom in to see them all.' : 'Location is off, so the map starts in central London.')}
           </Text>
         ) : null}
       </View>
