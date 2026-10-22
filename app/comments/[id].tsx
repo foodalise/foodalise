@@ -13,7 +13,7 @@ import { REVIEW_SELECT, type FeedReview } from '@/lib/types';
 // One review with its comments, and a box to add yours.
 export default function CommentsScreen() {
   const t = useTheme();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, write } = useLocalSearchParams<{ id: string; write?: string }>();
   const me = useAuth().session?.user.id;
   const [review, setReview] = useState<FeedReview | null>(null);
   const [comments, setComments] = useState<Comment[] | null>(null);
@@ -101,7 +101,7 @@ export default function CommentsScreen() {
           </Pressable>
         </Pressable>
       ))}
-      <Field placeholder="Add a comment" value={text} onChangeText={setText} maxLength={500} multiline
+      <Field placeholder="Add a comment" autoFocus={write === '1'} value={text} onChangeText={setText} maxLength={500} multiline
         onFocus={() => setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 300)} />
       <Button title="Post comment" onPress={post} busy={busy} disabled={!text.trim()} />
     </ScrollView>

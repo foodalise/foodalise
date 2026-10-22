@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
@@ -20,9 +21,11 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthProvider>
+        <RootLayoutNav />
+      </AuthProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -68,6 +71,7 @@ function RootLayoutNav() {
           <Stack.Screen name="dish/[id]" options={{ title: '' }} />
           <Stack.Screen name="user/[id]" options={{ title: '' }} />
           <Stack.Screen name="comments/[id]" options={{ title: 'Comments' }} />
+          <Stack.Screen name="edit-review/[id]" options={{ title: 'Edit review', presentation: 'modal' }} />
           <Stack.Screen name="share/[id]" options={{ title: 'Share', presentation: 'modal' }} />
           <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="follows" options={{ title: '' }} />
