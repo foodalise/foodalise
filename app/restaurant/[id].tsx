@@ -1,7 +1,8 @@
 import { Link, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { DishThumb } from '@/components/DishThumb';
 import { FoodBadge } from '@/components/FoodBadge';
 import { PhotoGallery, type GalleryPhoto } from '@/components/PhotoGallery';
 import { SnapMenuButton } from '@/components/SnapMenuButton';
@@ -12,7 +13,7 @@ import { openDirections, priceLabel } from '@/lib/directions';
 import { fetchWebsiteMenu, fileCuisine, MENU_PROBLEMS, reportMenu } from '@/lib/menu';
 import { useAuth } from '@/lib/auth';
 import { COURSES, courseOf } from '@/lib/menuOrder';
-import { restaurantPhotos } from '@/lib/photos';
+import { dishCovers, restaurantPhotos } from '@/lib/photos';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 import { restaurantWanted, setRestaurantWanted, wantToTryCount } from '@/lib/wishlist';
@@ -72,6 +73,7 @@ export default function RestaurantScreen() {
 
   // Every photo diners have posted here: most liked and commented on first, then newest.
   const loadPhotos = useCallback(() => { restaurantPhotos(id).then(setPhotos); }, [id]);
+  const covers = useMemo(() => dishCovers(photos), [photos]);
 
   // Whether it's on your Want to try list, and how many people want to try it.
   const loadWanted = useCallback(() => {
@@ -310,6 +312,7 @@ export default function RestaurantScreen() {
                 <Text style={{ color: t.ink, fontWeight: '700', fontSize: 15 }}>{d.name}</Text>
                 <Text style={{ color: t.muted, fontSize: 12 }}>{d.review_count} {d.review_count === 1 ? 'review' : 'reviews'}</Text>
               </View>
+              {covers.get(d.id) ? <DishThumb path={covers.get(d.id)!.path} count={covers.get(d.id)!.count} /> : null}
               <ScorePill rating={Number(d.avg_rating)} />
             </Pressable>
           ))}
@@ -357,6 +360,7 @@ export default function RestaurantScreen() {
                       d.price_pence != null ? `£${(d.price_pence / 100).toFixed(2)}` : null].filter(Boolean).join(' · ')}
                   </Text>
                 </View>
+                {covers.get(d.id) ? <DishThumb path={covers.get(d.id)!.path} count={covers.get(d.id)!.count} /> : null}
                 {d.avg_rating != null ? <ScorePill rating={Number(d.avg_rating)} /> : null}
               </Pressable>
             </Link>

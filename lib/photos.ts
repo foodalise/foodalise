@@ -19,8 +19,25 @@ function toPhotos(data: PhotoRow[]): GalleryPhoto[] {
   const rows = [...data].sort((a, b) =>
     (b.like_count + b.comment_count) - (a.like_count + a.comment_count) || b.created_at.localeCompare(a.created_at));
   return rows.flatMap((r) => [...r.review_photos].sort((a, b) => a.position - b.position).map((p) => ({
-    path: p.storage_path, reviewId: r.id, dishId: r.dishes?.id, dish: r.dishes?.name ?? '', likes: r.like_count, comments: r.comment_count, rating: Number(r.rating),
+    path: p.storage_path, reviewId: r.id, dishId: r.dishes?.id, dish: r.dishes?.name ?? '', likes: r.like_count, comments: r.comment_count, rating: Number(r.rating), at: r.created_at,
   })));
+}
+
+// One cover photo per dish (its most liked, or the newest when none are liked) and
+// how many photos the dish has, for the little stacked pictures on menus.
+export function dishCovers(photos: GalleryPhoto[]) {
+  const covers = new Map<string, { path: string; count: number; likes: number; at: string }>();
+  for (const p of photos) {
+    if (!p.dishId) continue;
+    const c = covers.get(p.dishId);
+    const at = p.at ?? '';
+    if (!c) covers.set(p.dishId, { path: p.path, count: 1, likes: p.likes, at });
+    else {
+      c.count++;
+      if (p.likes > c.likes || (p.likes === c.likes && at > c.at)) Object.assign(c, { path: p.path, likes: p.likes, at });
+    }
+  }
+  return covers;
 }
 
 // Photos diners have posted of one dish: most liked and commented on first, then newest.
