@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // Imports restaurants, cafés, takeaways and pubs from the Food Standards Agency's
 // open hygiene-ratings API into the `restaurants` table, then gives branches of
-// known chains their chain's menu. Re-running it updates existing places and adds
+// known chains their chain's menu. The database itself skips school, hospital and
+// care-home kitchens (see is_food_place() in the food_places_only migration). Re-running it updates existing places and adds
 // new openings, so run it again every month or so to stay current.
 //
 //   node scripts/import-fsa.mjs --london                  # every London borough
 //   node scripts/import-fsa.mjs --region "North West"     # any FSA region
 //   node scripts/import-fsa.mjs --list-authorities        # find an authority id
 //   node scripts/import-fsa.mjs --authority 197           # import one authority
+//   node scripts/import-fsa.mjs --council Brent           # import one council by name
 //
 // Needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment (never ship
 // the service role key in the app). Data: https://ratings.food.gov.uk/open-data
@@ -15,8 +17,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const API = 'https://api.ratings.food.gov.uk';
 const HEADERS = { 'x-api-version': '2', accept: 'application/json' };
-// FSA business type ids: Restaurant/Cafe/Canteen, Takeaway/sandwich shop, Pub/bar/nightclub.
-const BUSINESS_TYPES = [1, 7844, 7843];
+// FSA business type ids: Restaurant/Cafe/Canteen, Takeaway/sandwich shop, Pub/bar/nightclub,
+// Other catering premises (only the ones named like a place to eat are kept).
+const BUSINESS_TYPES = [1, 7844, 7843, 7841];
 const PAGE_SIZE = 1000;
 
 async function fsa(path) {
@@ -65,12 +68,12 @@ async function importAuthority(db, authorityId) {
         const { error } = await db.from('restaurants').upsert(rows, { onConflict: 'fsa_id' });
         if (error) throw new Error(`Supabase upsert failed: ${error.message}`);
         total += rows.length;
-        console.log(`type ${type} page ${page}: ${rows.length} places (${total} so far)`);
+        console.log(`type ${type} page ${page}: ${rows.length} places checked (${total} so far)`);
       }
       if (page >= (data.meta?.totalPages ?? 1) || rows.length < PAGE_SIZE) break;
     }
   }
-  console.log(`Done: ${total} places imported for authority ${authorityId}.`);
+  console.log(`Done: ${total} places checked for authority ${authorityId}.`);
   return total;
 }
 
@@ -109,10 +112,27 @@ async function importRegion(db, region) {
   console.log(`\nAll done: ${total} places across ${region}.`);
 }
 
+// One council by name, e.g. "Brent".
+async function importCouncil(db, name) {
+  const { authorities } = await fsa('/Authorities');
+  const matches = authorities.filter((a) => a.Name.toLowerCase().includes(name.toLowerCase()));
+  if (matches.length !== 1) {
+    const names = matches.map((a) => a.Name).join(', ');
+    throw new Error(matches.length ? `"${name}" matches ${names}. Be more specific.` : `No council called "${name}". See --list-authorities.`);
+  }
+  console.log(`Importing ${matches[0].Name}…`);
+  await importAuthority(db, matches[0].LocalAuthorityId);
+}
+
 const args = process.argv.slice(2);
 const regionAt = args.indexOf('--region');
+const councilAt = args.indexOf('--council');
 if (args.includes('--list-authorities')) {
   await listAuthorities();
+} else if (councilAt >= 0) {
+  const db = connect();
+  await importCouncil(db, args[councilAt + 1] ?? '');
+  await applyChainMenus(db);
 } else if (args.includes('--london') || regionAt >= 0) {
   const db = connect();
   await importRegion(db, args.includes('--london') ? 'London' : args[regionAt + 1]);
