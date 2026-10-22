@@ -148,8 +148,11 @@ export function ProfileView({ userId }: { userId: string }) {
   }
 
   // The gear on your own page: legal pages, signing out and deleting your account.
-  function openSettings() {
+  async function openSettings() {
+    // The team also sees their dashboard here.
+    const { data: admin } = await supabase.rpc('is_admin');
     Alert.alert('Settings', undefined, [
+      ...(admin ? [{ text: 'Dashboard', onPress: () => router.push('/dashboard') }] : []),
       { text: 'Terms of Use', onPress: () => router.push('/terms') },
       { text: 'Privacy policy', onPress: () => router.push('/privacy') },
       { text: 'Data credits', onPress: () => router.push('/credits') },
