@@ -1,3 +1,5 @@
+import * as Location from 'expo-location';
+
 import { supabase } from '@/lib/supabase';
 
 export type Region = { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number };
@@ -94,4 +96,27 @@ export async function coverPhotos(restaurantIds: string[]) {
     if (photo && !covers[id]) covers[id] = photo.storage_path;
   }
   return covers;
+}
+
+// Adds a restaurant the map is missing at a spot, filling in the address from
+// the phone's maps. If a place with a similar name is already there, returns
+// that one instead. Returns the restaurant's id.
+export async function addRestaurant(name: string, at: { latitude: number; longitude: number }) {
+  let address: string | null = null;
+  let postcode: string | null = null;
+  try {
+    const [place] = await Location.reverseGeocodeAsync(at);
+    if (place) {
+      address = [[place.streetNumber, place.street].filter(Boolean).join(' '), place.city].filter(Boolean).join(', ') || null;
+      postcode = place.postalCode ?? null;
+    }
+  } catch {
+    // No address is fine; the pin is what matters.
+  }
+  const { data, error } = await supabase.rpc('add_restaurant', {
+    place_name: name, lat: at.latitude, lng: at.longitude, place_address: address, place_postcode: postcode,
+  });
+  if (error) throw new Error(error.message.includes('outside the UK') || error.message.includes('Give the place') || error.message.includes('added 10')
+    ? error.message : "Couldn't add it. Check your connection and try again.");
+  return data as string;
 }
