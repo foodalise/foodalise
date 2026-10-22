@@ -3,7 +3,7 @@ import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
-import { FlatList, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Keyboard, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FoodBadge } from '@/components/FoodBadge';
@@ -12,6 +12,7 @@ import type { GalleryPhoto } from '@/components/PhotoGallery';
 import { RestaurantMap, type RestaurantMapHandle } from '@/components/RestaurantMap';
 import { Button, Chips, PhotoScore, ScorePill } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
+import { searchAreas, type Area } from '@/lib/areas';
 import { DIETS, PRICE_LEVELS } from '@/lib/cuisines';
 import { openDirections, priceLabel } from '@/lib/directions';
 import { restaurantPhotos } from '@/lib/photos';
@@ -33,18 +34,24 @@ const isSet = (kind: FilterKind, f: MapFilters) =>
   kind === 'cuisine' ? f.cuisines.length > 0 : kind === 'rating' ? f.minRating != null : kind === 'cost' ? f.prices.length > 0 : f.diets.length > 0;
 
 type Coords = { latitude: number; longitude: number };
-type Hit = { key: string; restaurant: { id: string; name: string; latitude: number | null; longitude: number | null; food_type: string | null }; dish?: string };
+type HitPlace = { id: string; name: string; latitude: number | null; longitude: number | null; food_type: string | null };
+type Hit =
+  | { key: string; restaurant: HitPlace; dish?: string; area?: undefined }
+  | { key: string; area: Area; restaurant?: undefined; dish?: undefined };
 
-// Restaurants whose name matches, then dishes whose name matches (with where they are).
+// Areas and postcodes to jump to, then restaurants whose name matches, then dishes
+// whose name matches (with where they are).
 async function search(term: string): Promise<Hit[]> {
   const like = `%${term.replace(/[%_]/g, '')}%`;
-  const [places, dishes] = await Promise.all([
+  const [areas, places, dishes] = await Promise.all([
+    searchAreas(term),
     supabase.from('restaurants').select('id, name, latitude, longitude, food_type').ilike('name', like).not('latitude', 'is', null).limit(6),
     supabase.from('dishes').select('id, name, restaurants!inner(id, name, latitude, longitude, food_type)').ilike('name', like)
       .eq('on_menu', true).gt('review_count', 0).order('avg_rating', { ascending: false }).limit(6)
-      .returns<{ id: string; name: string; restaurants: Hit['restaurant'] }[]>(),
+      .returns<{ id: string; name: string; restaurants: HitPlace }[]>(),
   ]);
   return [
+    ...areas.map((a) => ({ key: a.key, area: a })),
     ...(places.data ?? []).map((r) => ({ key: `r${r.id}`, restaurant: r })),
     ...(dishes.data ?? []).map((d) => ({ key: `d${d.id}`, restaurant: d.restaurants, dish: d.name })),
   ];
@@ -172,6 +179,13 @@ export default function MapScreen() {
 
   function openHit(h: Hit) {
     setQ(''); setHits([]);
+    Keyboard.dismiss();
+    if (h.area) {
+      // Jump there and let them browse; the map loads what's in view.
+      setSelectedId(null);
+      map.current?.moveTo({ latitude: h.area.latitude, longitude: h.area.longitude, latitudeDelta: h.area.delta, longitudeDelta: h.area.delta });
+      return;
+    }
     const { latitude, longitude } = h.restaurant;
     if (latitude == null || longitude == null) {
       router.push({ pathname: '/restaurant/[id]', params: { id: h.restaurant.id } });
@@ -196,7 +210,7 @@ export default function MapScreen() {
       <View style={[styles.top, { top: insets.top + 8 }]} pointerEvents="box-none">
         <View style={[styles.search, { backgroundColor: t.card, borderColor: t.line }]}>
           <SymbolView name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }} tintColor={t.muted} size={18} />
-          <TextInput value={q} onChangeText={setQ} placeholder="Search dishes or places" placeholderTextColor={t.muted}
+          <TextInput value={q} onChangeText={setQ} placeholder="Search dishes, places or areas" placeholderTextColor={t.muted}
             returnKeyType="search" autoCorrect={false} style={{ flex: 1, color: t.ink, fontSize: 16 }} />
           {q ? (
             <Pressable accessibilityLabel="Clear search" hitSlop={10} onPress={() => setQ('')}>
@@ -209,10 +223,15 @@ export default function MapScreen() {
             <FlatList data={hits} keyExtractor={(h) => h.key} keyboardShouldPersistTaps="handled"
               renderItem={({ item: h }) => (
                 <Pressable onPress={() => openHit(h)} style={[styles.hit, { borderBottomColor: t.line, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
-                  <FoodBadge type={h.restaurant.food_type} size={26} />
+                  {h.area ? (
+                    <View style={[styles.areaIcon, { backgroundColor: t.card, borderColor: t.line }]}>
+                      <SymbolView name={{ ios: 'map', android: 'map', web: 'map' }} tintColor={t.accent} size={14} />
+                    </View>
+                  ) : <FoodBadge type={h.restaurant.food_type} size={26} />}
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: t.ink, fontWeight: '700' }} numberOfLines={1}>{h.dish ?? h.restaurant.name}</Text>
-                    {h.dish ? <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>at {h.restaurant.name}</Text> : null}
+                    <Text style={{ color: t.ink, fontWeight: '700' }} numberOfLines={1}>{h.area ? h.area.name : h.dish ?? h.restaurant.name}</Text>
+                    {h.area ? <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>{h.area.detail}</Text>
+                      : h.dish ? <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>at {h.restaurant.name}</Text> : null}
                   </View>
                 </Pressable>
               )} />
@@ -327,6 +346,7 @@ const styles = StyleSheet.create({
   search: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, height: 50 },
   hits: { maxHeight: 320, borderWidth: 1, borderRadius: 16, overflow: 'hidden' },
   hit: { paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth },
+  areaIcon: { width: 26, height: 26, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   banner: { alignSelf: 'flex-start', fontSize: 13, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, overflow: 'hidden' },
   bottom: { position: 'absolute', left: 12, right: 12, bottom: 12, gap: 10 },
   locate: { alignSelf: 'flex-end', width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
