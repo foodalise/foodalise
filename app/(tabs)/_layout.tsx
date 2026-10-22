@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { View, type ColorValue } from 'react-native';
 
 import { Wordmark } from '@/components/Logo';
+import { NotificationBell } from '@/components/NotificationBell';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { useTheme } from '@/constants/theme';
 
@@ -37,7 +38,7 @@ export default function TabLayout() {
         // to prevent a hydration error in React Navigation v6.
         headerShown: useClientOnlyValue(false, true),
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Feed', headerTitle: () => <Wordmark size={24} />, tabBarIcon: icon({ ios: 'house', android: 'home', web: 'home' }) }} />
+      <Tabs.Screen name="index" options={{ title: 'Feed', headerTitle: () => <Wordmark size={24} />, headerRight: () => <NotificationBell />, tabBarIcon: icon({ ios: 'house', android: 'home', web: 'home' }) }} />
       <Tabs.Screen name="map" options={{ title: 'Map', headerShown: false, tabBarIcon: icon({ ios: 'map', android: 'map', web: 'map' }) }} />
       <Tabs.Screen name="review" options={{ title: 'Review', headerTitle: 'Review a dish', tabBarLabel: () => null, tabBarAccessibilityLabel: 'Review a dish', tabBarIcon: () => <AddIcon /> }} />
       <Tabs.Screen name="explore" options={{ title: 'Explore', tabBarIcon: icon({ ios: 'magnifyingglass', android: 'search', web: 'search' }) }} />

@@ -1,4 +1,5 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
@@ -6,6 +7,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/components/useColorScheme';
 import { themes } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { registerForPush } from '@/lib/notifications';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -32,6 +34,15 @@ function RootLayoutNav() {
     if (!loading) SplashScreen.hideAsync();
   }, [loading]);
 
+  // Once signed in: register this phone for push, and open the notifications
+  // list when someone taps one.
+  useEffect(() => {
+    if (!signedIn) return;
+    registerForPush();
+    const sub = Notifications.addNotificationResponseReceivedListener(() => router.push('/notifications'));
+    return () => sub.remove();
+  }, [signedIn]);
+
   if (loading) return null;
 
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
@@ -48,6 +59,7 @@ function RootLayoutNav() {
           <Stack.Screen name="user/[id]" options={{ title: '' }} />
           <Stack.Screen name="comments/[id]" options={{ title: 'Comments' }} />
           <Stack.Screen name="share/[id]" options={{ title: 'Share', presentation: 'modal' }} />
+          <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
