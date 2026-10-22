@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, Text
 
 import { Avatar } from '@/components/Avatar';
 import { ReviewPhoto } from '@/components/ReviewPhoto';
+import { YumBowl } from '@/components/YumBowl';
 import { formatScore, scoreColor, tint, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { blockUser, reportReview, REPORT_REASONS } from '@/lib/safety';
@@ -194,7 +195,7 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
     ]);
   }
 
-  // Shows the like straight away, and puts it back if saving fails.
+  // Shows the yum (our like) straight away, and puts it back if saving fails.
   async function toggleLike() {
     if (!me) return;
     const next = !liked;
@@ -255,7 +256,7 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
         ) : null}
       </View>
       {photo ? (
-        // Double-tap likes it (a second double-tap doesn't unlike); press and hold to comment.
+        // Double-tap gives it a yum (a second double-tap doesn't take it back); press and hold to comment.
         <ReviewPhoto uri={photoUrl(photo)} width={width} height={Math.round(width * PHOTO_RATIO)} background={t.card}
           onDoubleTap={() => { if (!liked) toggleLike(); }} onHold={() => openComments(true)} />
       ) : null}
@@ -284,10 +285,9 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
       ) : null}
       {review.body ? <Text style={{ color: t.ink, lineHeight: 21, fontSize: 15 }}>“{review.body}”</Text> : null}
       <View style={styles.actions}>
-        <Pressable accessibilityRole="button" accessibilityLabel={liked ? 'Unlike' : 'Like'} onPress={toggleLike} hitSlop={8} style={styles.action}>
-          <SymbolView name={{ ios: liked ? 'heart.fill' : 'heart', android: 'favorite', web: 'favorite' }} tintColor={liked ? t.accent : t.muted} size={20}
-            fallback={<Text style={{ fontSize: 20, color: liked ? t.accent : t.muted }}>{liked ? '♥' : '♡'}</Text>} />
-          <Text style={{ color: t.muted, fontWeight: '600' }}>{likes}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={liked ? 'Take back your yum' : 'Yum'} onPress={toggleLike} hitSlop={8} style={styles.action}>
+          <YumBowl size={26} yummed={liked} color={liked ? t.ink : t.muted} />
+          <Text style={{ color: t.muted, fontWeight: '600' }}>{likes} {likes === 1 ? 'yum' : 'yums'}</Text>
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Comments" hitSlop={8} style={styles.action}
           onPress={() => openComments()}>

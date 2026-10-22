@@ -7,7 +7,7 @@ import { Empty, timeAgo } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { describe, loadNotifications, markAllRead, type Notice } from '@/lib/notifications';
 
-// Likes, comments and new followers, newest first. Opening this marks them all read.
+// Yums, comments and new followers, newest first. Opening this marks them all read.
 export default function NotificationsScreen() {
   const t = useTheme();
   const [items, setItems] = useState<Notice[] | null>(null);
@@ -29,7 +29,7 @@ export default function NotificationsScreen() {
       style={{ backgroundColor: t.surface }}
       data={items ?? []}
       keyExtractor={(n) => n.id}
-      ListEmptyComponent={items ? <Empty title="Nothing yet" body="When people like, comment on or follow you, you'll see it here." /> : null}
+      ListEmptyComponent={items ? <Empty title="Nothing yet" body="When people give you a yum, comment or follow you, you'll see it here." /> : null}
       renderItem={({ item: n }) => (
         <Pressable onPress={() => open(n)} style={({ pressed }) => [styles.row, { borderBottomColor: t.line, opacity: pressed ? 0.6 : 1 }]}>
           <Avatar username={n.actor?.username} path={n.actor?.avatar_path} size={40} />

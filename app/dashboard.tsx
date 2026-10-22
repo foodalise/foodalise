@@ -75,7 +75,7 @@ export default function Dashboard() {
               ['People', stats.people, `+${stats.people_7d} this week · +${stats.people_today} today`],
               ['Reviews', stats.reviews, `+${stats.reviews_7d} this week · +${stats.reviews_today} today`],
               ['Active this week', stats.active_7d, 'people who posted'],
-              ['Photos', stats.photos, `${stats.likes} likes · ${stats.comments} comments`],
+              ['Photos', stats.photos, `${stats.likes} yums · ${stats.comments} comments`],
             ] as const).map(([label, n, sub]) => (
               <View key={label} style={[styles.tile, { backgroundColor: t.card, borderColor: t.line }]}>
                 <Text style={{ color: t.muted, fontSize: 13 }}>{label}</Text>

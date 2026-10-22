@@ -9,7 +9,7 @@ const UPDATED = '22 October 2026';
 
 const SECTIONS: [string, string][] = [
   ['Who we are', `Foodalise is an app for photographing, scoring and sharing the dishes you eat at restaurants in the UK. It is run by ${OPERATOR}, who is responsible for your data (the "data controller"). Contact: ${CONTACT_EMAIL}.`],
-  ['What we collect', 'Your email address and password (to sign you in), your username, profile photo, bio and favourite cuisines, and what you post: reviews, scores, dish photos, menu photos, comments, likes, who you follow, dishes and restaurants you save, and any posts you report or people you block. If you allow notifications, we keep a code for your phone so we can send them.'],
+  ['What we collect', 'Your email address and password (to sign you in), your username, profile photo, bio and favourite cuisines, and what you post: reviews, scores, dish photos, menu photos, comments, yums (likes), who you follow, dishes and restaurants you save, and any posts you report or people you block. If you allow notifications, we keep a code for your phone so we can send them.'],
   ['Why we use it', 'To run the app for you, as our agreement with you (the Terms of Use). We also use reports, blocks and posting limits to keep Foodalise safe and stop fake reviews, which is in everyone\'s legitimate interest. We do not sell your data, show you adverts or use it to train AI.'],
   ['What is public', 'Your username, profile photo, bio, reviews, scores, dish photos, comments and who you follow can be seen by anyone using Foodalise. Your email address is never shown.'],
   ['Your location', 'With your permission, your phone\'s location is used to show restaurants and dishes near you. It is sent to our database only to find what\'s nearby and is never stored.'],
