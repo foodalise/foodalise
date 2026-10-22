@@ -10,6 +10,7 @@ export type MapRestaurant = {
   latitude: number;
   longitude: number;
   cuisine: string | null;
+  food_type: string | null;
   price_level: number | null;
   diets: string[];
   rating: number | null;

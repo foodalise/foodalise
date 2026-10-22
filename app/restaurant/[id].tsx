@@ -2,6 +2,7 @@ import { Link, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { FoodBadge } from '@/components/FoodBadge';
 import { PhotoGallery, type GalleryPhoto } from '@/components/PhotoGallery';
 import { SnapMenuButton } from '@/components/SnapMenuButton';
 import { Button, Empty, Field, Label, ScorePill } from '@/components/ui';
@@ -65,7 +66,7 @@ export default function RestaurantScreen() {
   }, [id]);
 
   const loadRestaurant = useCallback(() => {
-    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source, website, chain_slug, menu_checked_at, latitude, longitude, cuisine, price_level, diets').eq('id', id).single()
+    supabase.from('restaurants').select('id, name, address, postcode, hygiene_rating, menu_source, website, chain_slug, menu_checked_at, latitude, longitude, cuisine, food_type, price_level, diets').eq('id', id).single()
       .then(({ data }) => setRestaurant(data));
   }, [id]);
 
@@ -79,10 +80,10 @@ export default function RestaurantScreen() {
   }, [id]);
 
   useEffect(() => {
-    loadRestaurant();
     loadDishes();
     loadPhotos();
-  }, [loadRestaurant, loadDishes, loadPhotos]);
+  }, [loadDishes, loadPhotos]);
+  useFocusEffect(loadRestaurant); // also picks up an admin's food type fix
   useFocusEffect(loadWanted);
 
   const onList = !!wanted && (wanted.place || wanted.dishes > 0);
@@ -161,13 +162,16 @@ export default function RestaurantScreen() {
     return () => { live = false; };
   }, [due, id, loadRestaurant, loadDishes]);
 
-  // The ⋯ button at the top right. The team also gets "Not a place to eat".
+  // The ⋯ button at the top right. The team also gets "Change food type" and "Not a place to eat".
   async function openMenuOptions() {
     const { data: admin } = await supabase.rpc('is_admin');
     Alert.alert(restaurant?.name ?? 'Menu', undefined, [
       { text: 'Refresh menu', onPress: refreshMenu },
       { text: 'Something wrong with this menu?', onPress: flagMenu },
-      ...(admin ? [{ text: 'Not a place to eat', style: 'destructive' as const, onPress: confirmHide }] : []),
+      ...(admin ? [
+        { text: 'Change food type', onPress: () => router.push({ pathname: '/food-type', params: { id, current: restaurant?.food_type ?? '' } }) },
+        { text: 'Not a place to eat', style: 'destructive' as const, onPress: confirmHide },
+      ] : []),
       { text: 'Cancel', style: 'cancel' as const },
     ]);
   }
@@ -254,10 +258,13 @@ export default function RestaurantScreen() {
       }} />
       {restaurant ? (
         <View style={{ gap: 8 }}>
-          <Text style={[styles.title, { color: t.ink }]}>
-            {restaurant.name}
-            {restaurant.cuisine ? <Text style={[styles.cuisine, { color: t.muted }]}>  {restaurant.cuisine}</Text> : null}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: t.ink, flexShrink: 1 }]}>
+              {restaurant.name}
+              {restaurant.food_type && restaurant.food_type !== 'Other' ? <Text style={[styles.cuisine, { color: t.muted }]}>  {restaurant.food_type}</Text> : null}
+            </Text>
+            <FoodBadge type={restaurant.food_type} size={34} />
+          </View>
           <Text style={{ color: t.muted }}>{[restaurant.address, restaurant.postcode].filter(Boolean).join(', ')}</Text>
           <View style={styles.summary}>
             {average != null ? <ScorePill rating={average} /> : null}
@@ -374,6 +381,7 @@ export default function RestaurantScreen() {
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 8 },
   title: { fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   order: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 },
   orderTitle: { fontSize: 17, fontWeight: '800' },
   orderRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

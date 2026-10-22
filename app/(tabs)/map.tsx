@@ -6,6 +6,7 @@ import { Image } from 'expo-image';
 import { FlatList, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FoodBadge } from '@/components/FoodBadge';
 import { MapFilterSheet, type FilterKind } from '@/components/MapFilterSheet';
 import type { GalleryPhoto } from '@/components/PhotoGallery';
 import { RestaurantMap, type RestaurantMapHandle } from '@/components/RestaurantMap';
@@ -32,14 +33,14 @@ const isSet = (kind: FilterKind, f: MapFilters) =>
   kind === 'cuisine' ? f.cuisines.length > 0 : kind === 'rating' ? f.minRating != null : kind === 'cost' ? f.prices.length > 0 : f.diets.length > 0;
 
 type Coords = { latitude: number; longitude: number };
-type Hit = { key: string; restaurant: { id: string; name: string; latitude: number | null; longitude: number | null }; dish?: string };
+type Hit = { key: string; restaurant: { id: string; name: string; latitude: number | null; longitude: number | null; food_type: string | null }; dish?: string };
 
 // Restaurants whose name matches, then dishes whose name matches (with where they are).
 async function search(term: string): Promise<Hit[]> {
   const like = `%${term.replace(/[%_]/g, '')}%`;
   const [places, dishes] = await Promise.all([
-    supabase.from('restaurants').select('id, name, latitude, longitude').ilike('name', like).not('latitude', 'is', null).limit(6),
-    supabase.from('dishes').select('id, name, restaurants!inner(id, name, latitude, longitude)').ilike('name', like)
+    supabase.from('restaurants').select('id, name, latitude, longitude, food_type').ilike('name', like).not('latitude', 'is', null).limit(6),
+    supabase.from('dishes').select('id, name, restaurants!inner(id, name, latitude, longitude, food_type)').ilike('name', like)
       .eq('on_menu', true).gt('review_count', 0).order('avg_rating', { ascending: false }).limit(6)
       .returns<{ id: string; name: string; restaurants: Hit['restaurant'] }[]>(),
   ]);
@@ -207,9 +208,12 @@ export default function MapScreen() {
           <View style={[styles.hits, { backgroundColor: t.card, borderColor: t.line }]}>
             <FlatList data={hits} keyExtractor={(h) => h.key} keyboardShouldPersistTaps="handled"
               renderItem={({ item: h }) => (
-                <Pressable onPress={() => openHit(h)} style={[styles.hit, { borderBottomColor: t.line }]}>
-                  <Text style={{ color: t.ink, fontWeight: '700' }} numberOfLines={1}>{h.dish ?? h.restaurant.name}</Text>
-                  {h.dish ? <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>at {h.restaurant.name}</Text> : null}
+                <Pressable onPress={() => openHit(h)} style={[styles.hit, { borderBottomColor: t.line, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
+                  <FoodBadge type={h.restaurant.food_type} size={26} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: t.ink, fontWeight: '700' }} numberOfLines={1}>{h.dish ?? h.restaurant.name}</Text>
+                    {h.dish ? <Text style={{ color: t.muted, fontSize: 13 }} numberOfLines={1}>at {h.restaurant.name}</Text> : null}
+                  </View>
                 </Pressable>
               )} />
           </View>
@@ -272,9 +276,12 @@ export default function MapScreen() {
             ) : null}
             <View style={styles.cardRow}>
               <View style={{ flex: 1, gap: 3 }}>
-                <Text style={[styles.name, { color: t.ink }]} numberOfLines={1}>{selected.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={[styles.name, { color: t.ink, flexShrink: 1 }]} numberOfLines={1}>{selected.name}</Text>
+                  <FoodBadge type={selected.food_type} />
+                </View>
                 <Text style={{ color: t.muted, fontSize: 14 }} numberOfLines={1}>
-                  {selected.cuisine ? <Text style={{ fontStyle: 'italic' }}>{selected.cuisine} · </Text> : null}
+                  {selected.food_type && selected.food_type !== 'Other' ? <Text style={{ fontStyle: 'italic' }}>{selected.food_type} · </Text> : null}
                   {[me ? formatDistance(distanceKm(me, selected)) : null, priceLabel(selected.price_level), selected.postcode,
                     selected.reviews ? `${selected.reviews} review${selected.reviews === 1 ? '' : 's'}` : 'No reviews yet'].filter(Boolean).join(' · ')}
                 </Text>
