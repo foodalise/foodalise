@@ -51,6 +51,20 @@ export async function restaurantsIn(region: Region, filters: MapFilters = NO_FIL
   return { places, more: (data ?? []).length >= limit };
 }
 
+// The FSA places every business at its postcode's centre, so places sharing a
+// postcode (a parade of shops, a food court) sit on exactly the same spot. The map
+// shows one pin per spot, and the card lets you swipe through everyone there.
+export function spotKey(r: { latitude: number; longitude: number }) {
+  return `${r.latitude.toFixed(4)},${r.longitude.toFixed(4)}`; // within about 10m
+}
+
+// Everyone at the same spot as `r`: reviewed places first, then A to Z.
+export function spotmates(restaurants: MapRestaurant[], r: MapRestaurant) {
+  const key = spotKey(r);
+  return restaurants.filter((x) => spotKey(x) === key)
+    .sort((a, b) => b.reviews - a.reviews || (b.rating ?? 0) - (a.rating ?? 0) || a.name.localeCompare(b.name));
+}
+
 export function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
   const rad = Math.PI / 180;
   const dLat = (b.latitude - a.latitude) * rad;

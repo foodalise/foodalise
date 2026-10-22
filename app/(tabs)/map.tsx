@@ -3,7 +3,7 @@ import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MapFilterSheet, type FilterKind } from '@/components/MapFilterSheet';
@@ -14,7 +14,7 @@ import { useTheme } from '@/constants/theme';
 import { DIETS, PRICE_LEVELS } from '@/lib/cuisines';
 import { openDirections, priceLabel } from '@/lib/directions';
 import { restaurantPhotos } from '@/lib/photos';
-import { coverPhotos, distanceKm, formatDistance, NO_FILTERS, restaurantsIn, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
+import { coverPhotos, distanceKm, formatDistance, NO_FILTERS, restaurantsIn, spotmates, type MapFilters, type MapRestaurant, type Region } from '@/lib/places';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { loadWishlist, type WishPlace } from '@/lib/wishlist';
 
@@ -131,6 +131,22 @@ export default function MapScreen() {
 
   const selected = restaurants.find((r) => r.id === selectedId) ?? null;
 
+  // Everyone sharing the selected place's spot on the map. Swipe the card, or tap
+  // the arrows, to move between them.
+  const here = selected ? spotmates(restaurants, selected) : [];
+  const index = selected ? here.findIndex((r) => r.id === selected.id) : -1;
+  const step = useRef((_by: number) => {});
+  step.current = (by: number) => {
+    if (here.length > 1) setSelectedId(here[(index + by + here.length) % here.length].id);
+  };
+  const swipe = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 20 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+    onPanResponderRelease: (_e, g) => {
+      if (g.dx < -50) step.current(1);
+      else if (g.dx > 50) step.current(-1);
+    },
+  })).current;
+
   // The selected restaurant's dishes with photos, one tile each (best liked photo), up to six.
   useEffect(() => {
     setPhotos([]);
@@ -239,8 +255,21 @@ export default function MapScreen() {
           <SymbolView name={{ ios: 'location', android: 'near_me', web: 'near_me' }} tintColor={t.ink} size={20} />
         </Pressable>
         {selected ? (
-          <View style={[styles.card, { backgroundColor: t.card, borderColor: t.line }]}>
+          <View style={[styles.card, { backgroundColor: t.card, borderColor: t.line }]} {...(here.length > 1 ? swipe.panHandlers : {})}>
             <View style={[styles.handle, { backgroundColor: t.line }]} />
+            {here.length > 1 ? (
+              <View style={styles.spot}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Previous place here" hitSlop={12} onPress={() => step.current(-1)}>
+                  <SymbolView name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }} tintColor={t.ink} size={18} />
+                </Pressable>
+                <Text style={{ color: t.muted, fontSize: 13, fontWeight: '600' }}>
+                  {index + 1} of {here.length} places here · swipe to see more
+                </Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Next place here" hitSlop={12} onPress={() => step.current(1)}>
+                  <SymbolView name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }} tintColor={t.ink} size={18} />
+                </Pressable>
+              </View>
+            ) : null}
             <View style={styles.cardRow}>
               <View style={{ flex: 1, gap: 3 }}>
                 <Text style={[styles.name, { color: t.ink }]} numberOfLines={1}>{selected.name}</Text>
@@ -296,6 +325,7 @@ const styles = StyleSheet.create({
   locate: { alignSelf: 'flex-end', width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   card: { padding: 16, paddingTop: 8, gap: 14, borderRadius: 26, borderWidth: StyleSheet.hairlineWidth },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2 },
+  spot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   name: { fontWeight: '800', fontSize: 24, letterSpacing: -0.4 },
   dishPhoto: { width: 112, height: 80, borderRadius: 12 },
