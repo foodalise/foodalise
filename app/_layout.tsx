@@ -25,7 +25,8 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const scheme = useColorScheme();
-  const { session, loading } = useAuth();
+  const { session, loading, recovering } = useAuth();
+  const signedIn = !!session && !recovering;
 
   useEffect(() => {
     if (!loading) SplashScreen.hideAsync();
@@ -40,7 +41,7 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={navTheme}>
       <Stack>
-        <Stack.Protected guard={!!session}>
+        <Stack.Protected guard={signedIn}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="restaurant/[id]" options={{ title: '' }} />
           <Stack.Screen name="dish/[id]" options={{ title: '' }} />
@@ -48,7 +49,7 @@ function RootLayoutNav() {
           <Stack.Screen name="comments/[id]" options={{ title: 'Comments' }} />
           <Stack.Screen name="share/[id]" options={{ title: 'Share', presentation: 'modal' }} />
         </Stack.Protected>
-        <Stack.Protected guard={!session}>
+        <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Screen name="privacy" options={{ title: 'Privacy policy' }} />
