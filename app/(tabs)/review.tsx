@@ -106,7 +106,7 @@ export default function Review() {
     setError(null);
     const perm = fromCamera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) { setError(fromCamera ? 'Camera access is off. Turn it on in Settings to take a photo.' : 'Photo access is off. Turn it on in Settings to choose a photo.'); return; }
-    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7 };
+    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 };
     const result = fromCamera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
     if (!result.canceled && result.assets[0]) setPhoto({ uri: result.assets[0].uri, mimeType: result.assets[0].mimeType, width: result.assets[0].width });
   }
@@ -213,6 +213,11 @@ export default function Review() {
               <View style={{ flex: 1 }}><Button variant="ghost" title="Take photo" onPress={() => pickPhoto(true)} /></View>
               <View style={{ flex: 1 }}><Button variant="ghost" title={photo ? 'Change photo' : 'Choose photo'} onPress={() => pickPhoto(false)} /></View>
             </View>
+            {!photo ? (
+              <Text style={{ color: t.muted, fontSize: 12, lineHeight: 17 }}>
+                Photo tip: shoot by a window if you can, get close so the dish fills the square, and wipe your lens first.
+              </Text>
+            ) : null}
 
             <Label>Your review</Label>
             <Field multiline placeholder="How was it? Portion, flavour, would you order it again?" value={body} onChangeText={setBody}
