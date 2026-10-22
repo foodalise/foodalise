@@ -37,7 +37,7 @@ export async function markAllRead() {
 
 export function describe(n: Notice) {
   const dish = n.review?.dishes?.name ?? 'review';
-  if (n.kind === 'like') return `liked your ${dish}`;
+  if (n.kind === 'like') return `gave your ${dish} a yum`;
   if (n.kind === 'comment') return `commented on your ${dish}: ${n.comment?.body ?? ''}`;
   return 'started following you';
 }
