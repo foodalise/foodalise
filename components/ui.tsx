@@ -1,10 +1,10 @@
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type TextInputProps } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
+import { ReviewPhoto } from '@/components/ReviewPhoto';
 import { formatScore, scoreColor, tint, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { blockUser, reportReview, REPORT_REASONS } from '@/lib/safety';
@@ -209,6 +209,12 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
     }
   }
 
+  // Comments open with the box ready to type in; on the comments page itself, it scrolls down to it.
+  function openComments(write = false) {
+    if (onComment) onComment();
+    else router.push({ pathname: '/comments/[id]', params: write ? { id: review.id, write: '1' } : { id: review.id } });
+  }
+
   // The bookmark adds the dish to your Want to try list.
   async function toggleSaved() {
     if (!me || !dishId) return;
@@ -249,8 +255,9 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
         ) : null}
       </View>
       {photo ? (
-        <Image source={{ uri: photoUrl(photo) }} contentFit="cover"
-          style={[styles.photo, { width, height: Math.round(width * PHOTO_RATIO), backgroundColor: t.card }]} />
+        // Double-tap likes it (a second double-tap doesn't unlike); press and hold to comment.
+        <ReviewPhoto uri={photoUrl(photo)} width={width} height={Math.round(width * PHOTO_RATIO)} background={t.card}
+          onDoubleTap={() => { if (!liked) toggleLike(); }} onHold={() => openComments(true)} />
       ) : null}
       {/* Under the photo: the dish, then where it's from; how long ago sits at the photo's bottom right. */}
       <View style={styles.under}>
@@ -283,7 +290,7 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
           <Text style={{ color: t.muted, fontWeight: '600' }}>{likes}</Text>
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Comments" hitSlop={8} style={styles.action}
-          onPress={onComment ?? (() => router.push({ pathname: '/comments/[id]', params: { id: review.id } }))}>
+          onPress={() => openComments()}>
           <SymbolView name={{ ios: 'bubble.left', android: 'chat_bubble', web: 'chat_bubble' }} tintColor={t.muted} size={19}
             fallback={<Text style={{ fontSize: 17, color: t.muted }}>💬</Text>} />
           <Text style={{ color: t.muted, fontWeight: '600' }}>{review.comment_count}</Text>
@@ -326,7 +333,6 @@ const styles = StyleSheet.create({
   // Lists that show cards have 16pt side padding; the photo reaches past it to the screen edges.
   card: { gap: 10, paddingBottom: 8 },
   who: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  photo: { marginHorizontal: -16 },
   dish: { fontWeight: '700', fontSize: 20, letterSpacing: -0.3 },
   more: { paddingHorizontal: 4 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingTop: 2 },

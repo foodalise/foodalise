@@ -1,5 +1,4 @@
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,12 +10,11 @@ import { Button, Empty, Field, Label } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
 import { formatDistance, restaurantsNear, type NearbyRestaurant } from '@/lib/places';
-import { addDish, postReview } from '@/lib/reviews';
+import { addDish, choosePhoto, postReview, type PickedPhoto } from '@/lib/reviews';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
 type Dish = { id: string; name: string; section: string | null };
-type Photo = { uri: string; mimeType?: string | null; width?: number | null };
 type Scores = { taste: number; presentation: number; value: number };
 
 const START: Scores = { taste: 8, presentation: 8, value: 8 };
@@ -36,7 +34,7 @@ export default function Review() {
   const [q, setQ] = useState('');
   const [restaurants, setRestaurants] = useState<Pick<Restaurant, 'id' | 'name' | 'address'>[]>([]);
   const [dishes, setDishes] = useState<Dish[]>([]);
-  const [photo, setPhoto] = useState<Photo | null>(null);
+  const [photo, setPhoto] = useState<PickedPhoto | null>(null);
   const [scores, setScores] = useState<Scores>(START);
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
@@ -104,11 +102,12 @@ export default function Review() {
 
   async function pickPhoto(fromCamera: boolean) {
     setError(null);
-    const perm = fromCamera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { setError(fromCamera ? 'Camera access is off. Turn it on in Settings to take a photo.' : 'Photo access is off. Turn it on in Settings to choose a photo.'); return; }
-    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 };
-    const result = fromCamera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
-    if (!result.canceled && result.assets[0]) setPhoto({ uri: result.assets[0].uri, mimeType: result.assets[0].mimeType, width: result.assets[0].width });
+    try {
+      const picked = await choosePhoto(fromCamera);
+      if (picked) setPhoto(picked);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   async function addMissingDish() {

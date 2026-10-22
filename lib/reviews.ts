@@ -1,4 +1,5 @@
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 
 import { PHOTO_BUCKET, supabase } from './supabase';
 
@@ -15,6 +16,33 @@ async function shrinkPhoto(photo: { uri: string; width?: number | null }) {
   return saved.uri;
 }
 
+export type PickedPhoto = { uri: string; mimeType?: string | null; width?: number | null };
+
+// Take or choose a square photo. Returns null if the diner backs out.
+export async function choosePhoto(fromCamera: boolean): Promise<PickedPhoto | null> {
+  const perm = fromCamera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) throw new Error(fromCamera ? 'Camera access is off. Turn it on in Settings to take a photo.' : 'Photo access is off. Turn it on in Settings to choose a photo.');
+  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 };
+  const result = fromCamera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
+  const asset = result.canceled ? null : result.assets[0];
+  return asset ? { uri: asset.uri, mimeType: asset.mimeType, width: asset.width } : null;
+}
+
+// Shrinks a photo and uploads it into the diner's own folder; returns where it went.
+async function uploadPhoto(userId: string, photo: PickedPhoto) {
+  const uri = await shrinkPhoto(photo);
+  const contentType = uri === photo.uri ? photo.mimeType ?? 'image/jpeg' : 'image/jpeg';
+  const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg';
+  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const bytes = await (await fetch(uri)).arrayBuffer();
+  const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, bytes, { contentType });
+  if (error) throw new Error(`Photo upload failed: ${error.message}`);
+  return path;
+}
+
+// The database recalculates rating from the three scores; this matches it.
+const overall = (taste: number, presentation: number, value: number) => Math.round(((taste + presentation + value) / 3) * 10) / 10;
+
 export type NewReview = {
   userId: string;
   dishId: string;
@@ -22,25 +50,15 @@ export type NewReview = {
   presentation: number;
   value: number;
   body: string;
-  photo: { uri: string; mimeType?: string | null; width?: number | null } | null;
+  photo: PickedPhoto | null;
 };
 
 // Upload the photo first, so a failed upload never leaves a review without its picture.
 export async function postReview({ userId, dishId, taste, presentation, value, body, photo }: NewReview) {
-  let photoPath: string | null = null;
-  if (photo) {
-    const uri = await shrinkPhoto(photo);
-    const contentType = uri === photo.uri ? photo.mimeType ?? 'image/jpeg' : 'image/jpeg';
-    const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg';
-    photoPath = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const bytes = await (await fetch(uri)).arrayBuffer();
-    const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(photoPath, bytes, { contentType });
-    if (error) throw new Error(`Photo upload failed: ${error.message}`);
-  }
+  const photoPath = photo ? await uploadPhoto(userId, photo) : null;
 
   const { data: review, error } = await supabase.from('reviews')
-    // The database recalculates rating from the three scores; this matches it.
-    .insert({ user_id: userId, dish_id: dishId, taste, presentation, value, rating: Math.round(((taste + presentation + value) / 3) * 10) / 10, body: body.trim() || null })
+    .insert({ user_id: userId, dish_id: dishId, taste, presentation, value, rating: overall(taste, presentation, value), body: body.trim() || null })
     .select('id').single();
   if (error || !review) {
     if (photoPath) await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
@@ -54,6 +72,33 @@ export async function postReview({ userId, dishId, taste, presentation, value, b
     if (photoError) throw new Error(`Review posted, but the photo couldn't be attached: ${photoError.message}`);
   }
   return review.id as string;
+}
+
+// Changes your own review's scores and words, and swaps its photo if you picked a new one.
+// The new photo is attached before the old one is removed, so the review is never left without one.
+export async function editReview({ reviewId, userId, taste, presentation, value, body, photo }:
+  Omit<NewReview, 'dishId'> & { reviewId: string }) {
+  const photoPath = photo ? await uploadPhoto(userId, photo) : null;
+  const { error } = await supabase.from('reviews')
+    .update({ taste, presentation, value, rating: overall(taste, presentation, value), body: body.trim() || null })
+    .eq('id', reviewId).eq('user_id', userId);
+  if (error) {
+    if (photoPath) await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
+    throw new Error(`Couldn't save your changes: ${error.message}`);
+  }
+  if (!photoPath) return;
+
+  const { data: old } = await supabase.from('review_photos').select('storage_path').eq('review_id', reviewId);
+  const { error: photoError } = await supabase.from('review_photos').insert({ review_id: reviewId, storage_path: photoPath });
+  if (photoError) {
+    await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
+    throw new Error(`Your scores and words are saved, but the new photo couldn't be attached: ${photoError.message}`);
+  }
+  const oldPaths = (old ?? []).map((p) => p.storage_path);
+  if (oldPaths.length) {
+    await supabase.from('review_photos').delete().eq('review_id', reviewId).in('storage_path', oldPaths);
+    await supabase.storage.from(PHOTO_BUCKET).remove(oldPaths);
+  }
 }
 
 // Adds a dish a diner ate that isn't on the menu yet. If someone already added it

@@ -175,11 +175,12 @@ export function ProfileView({ userId }: { userId: string }) {
     if (r.dishes) router.push({ pathname: '/dish/[id]', params: { id: r.dishes.id } });
   }
 
-  // On your own page a photo offers Open or Delete; elsewhere it just opens the dish.
+  // On your own page a photo offers Open, Edit or Delete; elsewhere it just opens the dish.
   function onTile(r: FeedReview) {
     if (!isMe) return openDish(r);
     Alert.alert(r.dishes?.name ?? 'Your review', r.dishes?.restaurants?.name, [
       { text: 'Open dish', onPress: () => openDish(r) },
+      { text: 'Edit review', onPress: () => router.push({ pathname: '/edit-review/[id]', params: { id: r.id } }) },
       { text: 'Delete review', style: 'destructive', onPress: () => confirmDelete(r) },
       { text: 'Cancel', style: 'cancel' },
     ]);
