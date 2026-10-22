@@ -12,6 +12,7 @@ import { Button, Empty, Field, PhotoScore, ReviewCard, UnderlineTabs } from '@/c
 import { WishlistList } from '@/components/WishlistList';
 import { formatScore, useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
+import { inviteFriends } from '@/lib/invite';
 import { changeAvatar, saveBio } from '@/lib/profile';
 import { compareTaste, myScores, type TasteMatch } from '@/lib/taste';
 import { deleteReview } from '@/lib/reviews';
@@ -285,7 +286,12 @@ export function ProfileView({ userId }: { userId: string }) {
           </View>
         ))}
       </View>
-      {isMe && editingBio === null ? <Button variant="ghost" title="Edit profile" onPress={editProfile} /> : null}
+      {isMe && editingBio === null ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1 }}><Button variant="ghost" title="Edit profile" onPress={editProfile} /></View>
+          <View style={{ flex: 1 }}><Button variant="ghost" title="Invite friends" onPress={() => inviteFriends(userId, username)} /></View>
+        </View>
+      ) : null}
       {iBlocked ? null : <Badges userId={userId} isMe={isMe} />}
       {!isMe && me && !iBlocked && reviews.length ? (
         <View style={[styles.taste, { borderColor: t.line }]}>
