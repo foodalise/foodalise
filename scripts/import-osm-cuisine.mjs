@@ -123,11 +123,22 @@ async function main() {
   console.log(`Asking OpenStreetMap about ${tiles.length} areas. This takes a few minutes.`);
 
   const found = new Map(); // restaurant id -> { cuisine, score }
+  const byId = new Map(places.map((p) => [p.id, p]));
+  const skipped = [];
+  let saved = 0;
   for (const [i, tile] of tiles.entries()) {
     const [ty, tx] = tile.split(',').map(Number);
     const s = (ty * TILE).toFixed(3), w = (tx * TILE).toFixed(3), n = ((ty + 1) * TILE).toFixed(3), e = ((tx + 1) * TILE).toFixed(3);
-    const elements = await overpass(s, w, n, e);
-    let matched = 0;
+    let elements;
+    try {
+      elements = await overpass(s, w, n, e);
+    } catch (err) {
+      // One busy area shouldn't lose the rest: skip it, and a later run fills it in.
+      console.warn(`area ${i + 1} of ${tiles.length}: skipped, ${err.message}`);
+      skipped.push(i + 1);
+      continue;
+    }
+    const touched = new Set();
     for (const el of elements) {
       const tags = el.tags ?? {};
       const cuisine = foodType(tags);
@@ -149,27 +160,29 @@ async function main() {
       }
       if (!best) continue;
       const before = found.get(best.id);
-      if (!before || score > before.score) { found.set(best.id, { cuisine, score }); matched++; }
+      if (!before || score > before.score) { found.set(best.id, { cuisine, score }); touched.add(best.id); }
     }
-    console.log(`area ${i + 1} of ${tiles.length}: ${elements.length} OSM places, ${matched} matched`);
+
+    // Save as we go, so stopping halfway keeps what's done.
+    const changes = [...touched].filter((id) => byId.get(id).osm_cuisine !== found.get(id).cuisine)
+      .map((id) => ({ id, cuisine: found.get(id).cuisine }));
+    if (dryRun) {
+      for (const c of changes.slice(0, 5)) console.log(`  ${byId.get(c.id).name} -> ${c.cuisine}`);
+    } else {
+      for (let j = 0; j < changes.length; j += 500) {
+        const { data, error } = await db.rpc('apply_osm_cuisines', { items: changes.slice(j, j + 500) });
+        if (error) throw error;
+        saved += data;
+      }
+      for (const c of changes) byId.get(c.id).osm_cuisine = c.cuisine;
+    }
+    console.log(`area ${i + 1} of ${tiles.length}: ${elements.length} OSM places, ${touched.size} matched, ${changes.length} saved`);
     await new Promise((r) => setTimeout(r, 1500)); // be kind to the free servers
   }
 
-  const byId = new Map(places.map((p) => [p.id, p]));
-  const changes = [...found].filter(([id, f]) => byId.get(id).osm_cuisine !== f.cuisine).map(([id, f]) => ({ id, cuisine: f.cuisine }));
-  console.log(`Found a food type for ${found.size} restaurants (${changes.length} new or changed).`);
-  if (dryRun) {
-    for (const c of changes.slice(0, 30)) console.log(`  ${byId.get(c.id).name} -> ${c.cuisine}`);
-    console.log('Dry run: nothing saved.');
-    return;
-  }
-  let saved = 0;
-  for (let i = 0; i < changes.length; i += 500) {
-    const { data, error } = await db.rpc('apply_osm_cuisines', { items: changes.slice(i, i + 500) });
-    if (error) throw error;
-    saved += data;
-  }
-  console.log(`Saved ${saved}. Done.`);
+  console.log(`Found a food type for ${found.size} restaurants.${dryRun ? ' Dry run: nothing saved.' : ` Saved ${saved}.`}`);
+  if (skipped.length) console.log(`OpenStreetMap was too busy for ${skipped.length} area(s) (${skipped.join(', ')}). Run this again later to fill them in.`);
+  else console.log('Done.');
 }
 
 main().catch((err) => { console.error(err.message ?? err); process.exit(1); });
