@@ -69,7 +69,7 @@ export function ReviewPhoto({ uri, width, height, background, onDoubleTap, onHol
           <Image source={{ uri }} contentFit="cover" style={{ width, height }} />
         </Animated.View>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.center, popped]}>
-          {burst ? <View style={styles.shadow}><YumBowl key={burst} size={130} yummed playOnMount color="#FFFFFF" /></View> : null}
+          {burst ? <View style={styles.shadow}><YumBowl key={burst} size={130} yummed playOnMount oneBounce color="#FFFFFF" /></View> : null}
         </Animated.View>
       </Animated.View>
     </GestureDetector>

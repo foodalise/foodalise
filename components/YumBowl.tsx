@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { brand } from '@/constants/theme';
@@ -13,8 +13,10 @@ const LEAF = 'M94,-7 Q116,-14.5 122,-37 Q100,-29.5 94,-7 Z';
 const SAFFRON = 'M84.5,7.5 A17.5,17.5 0 0 1 119.5,7.5 Z';
 const BOWL = 'M55,7.5 L130,7.5 A37.5,31 0 0 1 55,7.5 Z';
 
-export function YumBowl({ size, yummed, color, playOnMount = false }: {
-  size: number; yummed: boolean; color: string; playOnMount?: boolean;
+// oneBounce: the food drops, bounces up once and lands for good (the big double-tap bowl);
+// otherwise it springs in with a few small bounces (the bowl under each post).
+export function YumBowl({ size, yummed, color, playOnMount = false, oneBounce = false }: {
+  size: number; yummed: boolean; color: string; playOnMount?: boolean; oneBounce?: boolean;
 }) {
   const tomato = useSharedValue(0);
   const saffron = useSharedValue(0);
@@ -31,9 +33,14 @@ export function YumBowl({ size, yummed, color, playOnMount = false }: {
     // Each piece starts above the bowl and falls in, one after another.
     [tomato, saffron, leaf].forEach((v, i) => {
       v.value = -size;
-      v.value = withDelay(i * 90, withSpring(0, { damping: 7, stiffness: 170 }));
+      v.value = withDelay(i * 90, oneBounce
+        ? withSequence(
+          withTiming(0, { duration: 300, easing: Easing.in(Easing.quad) }),
+          withTiming(-size * 0.16, { duration: 170, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 170, easing: Easing.in(Easing.quad) }))
+        : withSpring(0, { damping: 7, stiffness: 170 }));
     });
-  }, [yummed, playOnMount, size, tomato, saffron, leaf, shown]);
+  }, [yummed, playOnMount, oneBounce, size, tomato, saffron, leaf, shown]);
 
   const box = { width: size, height: size, position: 'absolute' as const };
   return (
