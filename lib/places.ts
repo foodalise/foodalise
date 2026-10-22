@@ -20,8 +20,6 @@ export type MapRestaurant = {
 export type MapFilters = { cuisines: string[]; minRating: number | null; prices: number[]; diets: string[] };
 export const NO_FILTERS: MapFilters = { cuisines: [], minRating: null, prices: [], diets: [] };
 
-type Row = Omit<MapRestaurant, 'rating' | 'reviews'> & { dishes: { review_count: number; avg_rating: number | null }[] };
-
 // Central London, used until we know where the user is.
 export const LONDON: Region = { latitude: 51.5115, longitude: -0.13, latitudeDelta: 0.04, longitudeDelta: 0.04 };
 
@@ -29,26 +27,23 @@ export const LONDON: Region = { latitude: 51.5115, longitude: -0.13, latitudeDel
 const MAP_LIMIT = 300;
 
 // Restaurants inside the visible part of the map that match the filters, scored by
-// the average of every review across their dishes. `more` is true when the area
-// holds more than the map can draw, so the app can ask you to zoom in.
+// the average of every review across their dishes. Reviewed places come first, then
+// the rest spread evenly across the screen. `more` is true when the area holds more
+// than the map can draw, so the app can ask you to zoom in.
 export async function restaurantsIn(region: Region, filters: MapFilters = NO_FILTERS) {
   const { latitude: lat, longitude: lng, latitudeDelta: dLat, longitudeDelta: dLng } = region;
-  let query = supabase.from('restaurants')
-    .select('id, name, address, postcode, latitude, longitude, cuisine, price_level, diets, dishes(review_count, avg_rating)')
-    .gte('latitude', lat - dLat / 2).lte('latitude', lat + dLat / 2)
-    .gte('longitude', lng - dLng / 2).lte('longitude', lng + dLng / 2);
-  if (filters.cuisines.length) query = query.in('cuisine', filters.cuisines);
-  if (filters.prices.length) query = query.in('price_level', filters.prices);
-  if (filters.diets.length) query = query.contains('diets', filters.diets);
-  const limit = filters.minRating != null ? MAP_LIMIT * 2 : MAP_LIMIT;
-  const { data, error } = await query.limit(limit).returns<Row[]>();
+  const { data, error } = await supabase.rpc('map_places', {
+    min_lat: lat - dLat / 2, max_lat: lat + dLat / 2, min_lng: lng - dLng / 2, max_lng: lng + dLng / 2,
+    cuisines: filters.cuisines.length ? filters.cuisines : null,
+    prices: filters.prices.length ? filters.prices : null,
+    want_diets: filters.diets.length ? filters.diets : null,
+    min_rating: filters.minRating,
+    max_rows: MAP_LIMIT,
+  });
   if (error) throw error;
-  const places = (data ?? []).map(({ dishes, ...r }): MapRestaurant => {
-    const reviews = dishes.reduce((n, d) => n + d.review_count, 0);
-    const total = dishes.reduce((s, d) => s + (d.avg_rating ?? 0) * d.review_count, 0);
-    return { ...r, reviews, rating: reviews ? total / reviews : null };
-  }).filter((r) => filters.minRating == null || (r.rating != null && r.rating >= filters.minRating));
-  return { places, more: (data ?? []).length >= limit };
+  const rows = (data ?? []) as (MapRestaurant & { more: boolean })[];
+  const places = rows.map(({ more: _more, ...r }): MapRestaurant => ({ ...r, rating: r.rating == null ? null : Number(r.rating) }));
+  return { places, more: rows.some((r) => r.more) };
 }
 
 // The FSA places every business at its postcode's centre, so places sharing a
