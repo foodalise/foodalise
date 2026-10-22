@@ -8,6 +8,7 @@
 //
 //   node scripts/import-osm-cuisine.mjs            # every area we have restaurants in
 //   node scripts/import-osm-cuisine.mjs --dry-run  # show what it would save
+//   node scripts/import-osm-cuisine.mjs --from 20  # carry on from area 20 after stopping
 //
 // Needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment, like the FSA
 // import. Data © OpenStreetMap contributors, ODbL (credited in the app's Credits).
@@ -70,19 +71,30 @@ function km(a, b) {
   return 12742 * Math.asin(Math.sqrt(h));
 }
 
+// The free servers are often busy. Start with whichever answered last, give up on
+// a request after 90 seconds rather than waiting forever, and move on quickly.
+let preferred = 0;
 async function overpass(s, w, n, e) {
   const bbox = `${s},${w},${n},${e}`;
-  const query = `[out:json][timeout:180];(nwr["amenity"~"^(restaurant|cafe|fast_food|pub|bar|ice_cream|food_court)$"]["name"](${bbox});nwr["shop"~"^(bakery|pastry|deli)$"]["name"](${bbox}););out center tags;`;
+  const query = `[out:json][timeout:80];(nwr["amenity"~"^(restaurant|cafe|fast_food|pub|bar|ice_cream|food_court)$"]["name"](${bbox});nwr["shop"~"^(bakery|pastry|deli)$"]["name"](${bbox}););out center tags;`;
   for (let attempt = 0; attempt < 6; attempt++) {
-    const server = OVERPASS_SERVERS[attempt % OVERPASS_SERVERS.length];
+    const which = (preferred + attempt) % OVERPASS_SERVERS.length;
+    const server = OVERPASS_SERVERS[which];
     try {
-      const res = await fetch(server, { method: 'POST', body: new URLSearchParams({ data: query }), headers: { 'user-agent': 'Foodalise import (foodalise.app)' } });
-      if (res.ok) return (await res.json()).elements ?? [];
+      const res = await fetch(server, {
+        method: 'POST', body: new URLSearchParams({ data: query }),
+        headers: { 'user-agent': 'Foodalise import (foodalise.app)' }, signal: AbortSignal.timeout(90_000),
+      });
+      if (res.ok) {
+        const { elements } = await res.json();
+        preferred = which;
+        return elements ?? [];
+      }
       console.warn(`  ${server} said ${res.status}, trying again`);
     } catch (err) {
       console.warn(`  ${server} failed (${err.message}), trying again`);
     }
-    await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+    await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
   }
   throw new Error(`OpenStreetMap didn't answer for ${bbox}. Try again later.`);
 }
@@ -107,6 +119,8 @@ async function allRestaurants(db) {
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
+  const fromArg = process.argv.indexOf('--from');
+  const from = fromArg > 0 ? Math.max(1, parseInt(process.argv[fromArg + 1], 10) || 1) : 1;
   const db = connect();
   const places = await allRestaurants(db);
   console.log(`${places.length} restaurants in Foodalise.`);
@@ -119,15 +133,28 @@ async function main() {
     if (!grid.has(k)) grid.set(k, []);
     grid.get(k).push(p);
   }
-  const tiles = [...new Set(places.map((p) => `${Math.floor(p.latitude / TILE)},${Math.floor(p.longitude / TILE)}`))];
-  console.log(`Asking OpenStreetMap about ${tiles.length} areas. This takes a few minutes.`);
+  const tiles = [...new Set(places.map((p) => `${Math.floor(p.latitude / TILE)},${Math.floor(p.longitude / TILE)}`))].sort(); // same order every run, for --from
+  console.log(`Asking OpenStreetMap about ${tiles.length} areas${from > 1 ? `, starting at area ${from}` : ''}. This can take a while when its servers are busy.`);
+  if (!dryRun) console.log('Each area is saved as it finishes, so you can stop with Ctrl+C and carry on later with --from <area>.');
 
   const found = new Map(); // restaurant id -> { cuisine, score }
+  const byId = new Map(places.map((p) => [p.id, p]));
+  const skipped = [];
+  let saved = 0;
   for (const [i, tile] of tiles.entries()) {
+    if (i + 1 < from) continue;
     const [ty, tx] = tile.split(',').map(Number);
     const s = (ty * TILE).toFixed(3), w = (tx * TILE).toFixed(3), n = ((ty + 1) * TILE).toFixed(3), e = ((tx + 1) * TILE).toFixed(3);
-    const elements = await overpass(s, w, n, e);
-    let matched = 0;
+    let elements;
+    try {
+      elements = await overpass(s, w, n, e);
+    } catch (err) {
+      // One busy area shouldn't lose the rest: skip it, and a later run fills it in.
+      console.warn(`area ${i + 1} of ${tiles.length}: skipped, ${err.message}`);
+      skipped.push(i + 1);
+      continue;
+    }
+    const touched = new Set();
     for (const el of elements) {
       const tags = el.tags ?? {};
       const cuisine = foodType(tags);
@@ -149,27 +176,29 @@ async function main() {
       }
       if (!best) continue;
       const before = found.get(best.id);
-      if (!before || score > before.score) { found.set(best.id, { cuisine, score }); matched++; }
+      if (!before || score > before.score) { found.set(best.id, { cuisine, score }); touched.add(best.id); }
     }
-    console.log(`area ${i + 1} of ${tiles.length}: ${elements.length} OSM places, ${matched} matched`);
+
+    // Save as we go, so stopping halfway keeps what's done.
+    const changes = [...touched].filter((id) => byId.get(id).osm_cuisine !== found.get(id).cuisine)
+      .map((id) => ({ id, cuisine: found.get(id).cuisine }));
+    if (dryRun) {
+      for (const c of changes.slice(0, 5)) console.log(`  ${byId.get(c.id).name} -> ${c.cuisine}`);
+    } else {
+      for (let j = 0; j < changes.length; j += 500) {
+        const { data, error } = await db.rpc('apply_osm_cuisines', { items: changes.slice(j, j + 500) });
+        if (error) throw error;
+        saved += data;
+      }
+      for (const c of changes) byId.get(c.id).osm_cuisine = c.cuisine;
+    }
+    console.log(`area ${i + 1} of ${tiles.length}: ${elements.length} OSM places, ${touched.size} matched, ${changes.length} saved`);
     await new Promise((r) => setTimeout(r, 1500)); // be kind to the free servers
   }
 
-  const byId = new Map(places.map((p) => [p.id, p]));
-  const changes = [...found].filter(([id, f]) => byId.get(id).osm_cuisine !== f.cuisine).map(([id, f]) => ({ id, cuisine: f.cuisine }));
-  console.log(`Found a food type for ${found.size} restaurants (${changes.length} new or changed).`);
-  if (dryRun) {
-    for (const c of changes.slice(0, 30)) console.log(`  ${byId.get(c.id).name} -> ${c.cuisine}`);
-    console.log('Dry run: nothing saved.');
-    return;
-  }
-  let saved = 0;
-  for (let i = 0; i < changes.length; i += 500) {
-    const { data, error } = await db.rpc('apply_osm_cuisines', { items: changes.slice(i, i + 500) });
-    if (error) throw error;
-    saved += data;
-  }
-  console.log(`Saved ${saved}. Done.`);
+  console.log(`Found a food type for ${found.size} restaurants.${dryRun ? ' Dry run: nothing saved.' : ` Saved ${saved}.`}`);
+  if (skipped.length) console.log(`OpenStreetMap was too busy for ${skipped.length} area(s) (${skipped.join(', ')}). Run this again later to fill them in.`);
+  else console.log('Done.');
 }
 
 main().catch((err) => { console.error(err.message ?? err); process.exit(1); });
