@@ -27,6 +27,7 @@ export type Restaurant = {
   latitude?: number | null;
   longitude?: number | null;
   cuisine?: string | null;
+  food_type?: string | null;
   price_level?: number | null;
   diets?: string[];
 };

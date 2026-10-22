@@ -73,6 +73,7 @@ function RootLayoutNav() {
           <Stack.Screen name="follows" options={{ title: '' }} />
           <Stack.Screen name="top-list" options={{ title: 'Your top list' }} />
           <Stack.Screen name="dashboard" options={{ title: 'Dashboard' }} />
+          <Stack.Screen name="food-type" options={{ title: 'Food type', presentation: 'modal' }} />
           <Stack.Screen name="welcome" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>

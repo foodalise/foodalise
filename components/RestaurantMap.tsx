@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
 import { formatScore, scoreColor, useTheme } from '@/constants/theme';
+import { foodEmoji } from '@/lib/foodTypes';
 import { LONDON, spotKey, spotmates, type MapRestaurant, type Region } from '@/lib/places';
 import { photoUrl } from '@/lib/supabase';
 
@@ -70,7 +71,8 @@ export const RestaurantMap = forwardRef<RestaurantMapHandle, Props>(function Res
             <View style={styles.pinWrap}>
               <View style={[styles.pin, { backgroundColor: selected ? t.accent : t.card, borderColor: selected ? t.accent : t.line }]}>
                 <Text style={[styles.pinText, { color: selected ? t.accentInk : r.rating != null ? scoreColor(t, r.rating) : t.muted }]}>
-                  {formatScore(r.rating)}
+                  <Text style={styles.pinEmoji}>{foodEmoji(r.food_type)}</Text>
+                  {r.rating != null ? ` ${formatScore(r.rating)}` : null}
                 </Text>
               </View>
               {count > 1 ? <Count n={count} /> : null}
@@ -122,6 +124,7 @@ const styles = StyleSheet.create({
   photoScore: { marginTop: -10, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   pin: { minWidth: 34, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, borderWidth: 1.5, alignItems: 'center' },
   pinText: { fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] },
+  pinEmoji: { fontSize: 15 },
   pinWrap: { paddingTop: 8, paddingRight: 10 },
   count: { position: 'absolute', top: 0, right: 0, minWidth: 20, height: 20, borderRadius: 10, borderWidth: 2, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
 });

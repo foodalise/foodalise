@@ -35,6 +35,11 @@ Next up: loading chain menus and reading menu photos with AI.
    node --env-file=.env scripts/import-fsa.mjs --authority <id>
    ```
    Re-run it monthly to pick up new openings. This uses the service role key, so only run it on your own machine.
+6. **Food types (optional).** Pick up each place's cuisine from OpenStreetMap, for the little food pictures on the map:
+   ```bash
+   node --env-file=.env scripts/import-osm-cuisine.mjs
+   ```
+   Run it after each FSA import. Places it can't match still get a guess from their name.
 
 ## Project layout
 
@@ -44,6 +49,7 @@ Next up: loading chain menus and reading menu photos with AI.
 - `lib/` Supabase client, login state and shared types
 - `supabase/migrations/` database schema and access rules
 - `scripts/import-fsa.mjs` FSA restaurant import
+- `scripts/import-osm-cuisine.mjs` cuisines from OpenStreetMap
 
 ## Checks
 
