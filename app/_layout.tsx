@@ -8,6 +8,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { themes } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { registerForPush } from '@/lib/notifications';
+import { supabase } from '@/lib/supabase';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -43,6 +44,15 @@ function RootLayoutNav() {
     return () => sub.remove();
   }, [signedIn]);
 
+  // New accounts see the welcome screens once.
+  const userId = signedIn ? session?.user.id : undefined;
+  useEffect(() => {
+    if (!userId) return;
+    supabase.from('profiles').select('onboarded_at').eq('id', userId).maybeSingle().then(({ data }) => {
+      if (data && !data.onboarded_at) router.replace('/welcome');
+    });
+  }, [userId]);
+
   if (loading) return null;
 
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
@@ -60,6 +70,7 @@ function RootLayoutNav() {
           <Stack.Screen name="comments/[id]" options={{ title: 'Comments' }} />
           <Stack.Screen name="share/[id]" options={{ title: 'Share', presentation: 'modal' }} />
           <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
+          <Stack.Screen name="welcome" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
