@@ -29,11 +29,12 @@ export async function snapMenu(restaurantId: string, fromCamera: boolean): Promi
 // for a chain, the chain's menu page). The function itself decides whether a read is
 // due, so this is cheap to call whenever a restaurant is opened. Never throws.
 // Pass website when a diner typed it in because we couldn't find it ourselves, and
-// refresh when they tapped "Refresh menu".
+// refresh when they tapped "Refresh menu". menuLink (the Foodalise team only) reads the
+// menu from that page or PDF instead of the restaurant's website.
 // A website read runs in the background and takes a minute or two, so while the
 // function says "running" this asks again every few seconds, for up to three minutes.
-export async function fetchWebsiteMenu(restaurantId: string, website?: string, refresh = false): Promise<{ status: string; added: number }> {
-  let result = await askFetchMenu({ restaurantId, website, refresh });
+export async function fetchWebsiteMenu(restaurantId: string, website?: string, refresh = false, menuLink?: string): Promise<{ status: string; added: number }> {
+  let result = await askFetchMenu({ restaurantId, website, refresh, menuLink });
   for (let i = 0; i < 36 && result.status === 'running'; i++) {
     await new Promise((done) => setTimeout(done, 5000));
     result = await askFetchMenu({ restaurantId });
@@ -41,7 +42,7 @@ export async function fetchWebsiteMenu(restaurantId: string, website?: string, r
   return result.status === 'running' ? { status: 'error', added: 0 } : result;
 }
 
-async function askFetchMenu(body: { restaurantId: string; website?: string; refresh?: boolean }) {
+async function askFetchMenu(body: { restaurantId: string; website?: string; refresh?: boolean; menuLink?: string }) {
   const { data, error } = await supabase.functions.invoke('fetch-menu', { body });
   if (error || !data) return { status: 'error', added: 0 };
   return data as { status: string; added: number };
