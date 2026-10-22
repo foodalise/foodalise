@@ -6,6 +6,7 @@ import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWind
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/Avatar';
+import { Badges } from '@/components/Badges';
 import { PhotoStats } from '@/components/PhotoStats';
 import { Button, Empty, Field, PhotoScore, ReviewCard, UnderlineTabs } from '@/components/ui';
 import { WishlistList } from '@/components/WishlistList';
@@ -285,6 +286,7 @@ export function ProfileView({ userId }: { userId: string }) {
         ))}
       </View>
       {isMe && editingBio === null ? <Button variant="ghost" title="Edit profile" onPress={editProfile} /> : null}
+      {iBlocked ? null : <Badges userId={userId} isMe={isMe} />}
       {!isMe && me && !iBlocked && reviews.length ? (
         <View style={[styles.taste, { borderColor: t.line }]}>
           {taste ? (
