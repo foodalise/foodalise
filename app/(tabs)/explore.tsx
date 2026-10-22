@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BestNearMe } from '@/components/BestNearMe';
-import { Empty, Field, Segmented } from '@/components/ui';
+import { Button, Empty, Field, Segmented } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
 import { useAuth } from '@/lib/auth';
+import { inviteFriends } from '@/lib/invite';
 import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
@@ -54,6 +55,12 @@ export default function Explore() {
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [q, mode, me]);
+
+  async function invite() {
+    if (!me) return;
+    const { data } = await supabase.from('profiles').select('username').eq('id', me).maybeSingle();
+    inviteFriends(me, data?.username ?? null);
+  }
 
   async function toggleFollow(person: Person) {
     if (!me) return;
@@ -113,7 +120,12 @@ export default function Explore() {
           );
         }}
         ListEmptyComponent={searched ? <Empty title="Nobody found" body="Check the spelling of their username." />
-          : <Empty title="Find your friends" body="Search a username to follow them. Their reviews will show in your Feed." />}
+          : (
+            <View style={{ gap: 12 }}>
+              <Empty title="Find your friends" body="Search a username to follow them. Their reviews will show in your Feed." />
+              <Button title="Invite friends" onPress={invite} />
+            </View>
+          )}
       />
     );
   }
