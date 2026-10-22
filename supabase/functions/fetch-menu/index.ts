@@ -491,18 +491,19 @@ function cleanDishes(dishes: Dish[]): Dish[] {
   return [...byName.values()];
 }
 
-// Re-reads a chain's menu and updates every branch, at most once a month per chain.
-async function refreshChain(admin: SupabaseClient<any>, slug: string, claimRefresh: () => Promise<Response | null>) {
+// Re-reads a chain's menu and updates every branch, at most once a month per chain
+// (the Foodalise team, `anytime`, can refresh it whenever they like).
+async function refreshChain(admin: SupabaseClient<any>, slug: string, claimRefresh: () => Promise<Response | null>, anytime = false) {
   const due = new Date(Date.now() - REFRESH_EVERY_DAYS * 864e5).toISOString();
   const { data: source } = await admin.from('chain_menu_sources').select('read_at').eq('chain_slug', slug).maybeSingle();
   if (!source) return json({ status: 'no_website', added: 0 });
-  if (source.read_at && source.read_at > due) return json({ status: 'too_soon', added: 0 });
+  if (!anytime && source.read_at && source.read_at > due) return json({ status: 'too_soon', added: 0 });
   const used = await claimRefresh();
   if (used) return used;
   // Claim the chain so two people refreshing branches at once don't both read it.
-  const { data: claimed } = await admin.from('chain_menu_sources')
-    .update({ status: 'running', read_at: new Date().toISOString() })
-    .eq('chain_slug', slug).or(`read_at.is.null,read_at.lt.${due}`).select('menu_url');
+  let claim = admin.from('chain_menu_sources').update({ status: 'running', read_at: new Date().toISOString() }).eq('chain_slug', slug);
+  if (!anytime) claim = claim.or(`read_at.is.null,read_at.lt.${due}`);
+  const { data: claimed } = await claim.select('menu_url');
   if (!claimed?.length) return json({ status: 'too_soon', added: 0 });
 
   const finish = async (status: string, added = 0, found: number | null = null) => {
@@ -558,9 +559,14 @@ Deno.serve(async (req) => {
     }
   }
 
+  // The Foodalise team (the admins table) can refresh any menu as often as they like:
+  // no once-a-month wait, no one-refresh-each, no daily limit on refreshes.
+  const { data: team } = refresh ? await admin.from('admins').select('user_id').eq('user_id', user.id).maybeSingle() : { data: null };
+  const anytime = !!team;
+
   // Each diner gets one "Refresh menu" per restaurant. Only used up once a read actually starts.
   const claimRefresh = async () => {
-    if (!refresh) return null;
+    if (!refresh || anytime) return null;
     const { error } = await admin.from('menu_refreshes').insert({ user_id: user.id, restaurant_id: r.id });
     return error ? json({ status: 'already_refreshed', added: 0 }) : null;
   };
@@ -569,14 +575,14 @@ Deno.serve(async (req) => {
   // It's only read when a diner asks for a refresh, or the branch has no menu at all.
   if (r.chain_slug && !given) {
     if (!refresh && r.menu_source !== 'none') return json({ status: 'done', added: 0 });
-    return await refreshChain(admin, r.chain_slug, claimRefresh);
+    return await refreshChain(admin, r.chain_slug, claimRefresh, anytime);
   }
 
   const { data: last } = await admin.from('menu_fetches').select('status, attempted_at, dishes_added').eq('restaurant_id', r.id).maybeSingle();
   if (refresh) {
     // Each restaurant's menu can be refreshed at most once a month.
     const lastRead = r.menu_checked_at ?? (last?.status === 'done' ? last.attempted_at : null);
-    if (lastRead && Date.now() - new Date(lastRead).getTime() < REFRESH_EVERY_DAYS * 864e5) return json({ status: 'too_soon', added: 0 });
+    if (!anytime && lastRead && Date.now() - new Date(lastRead).getTime() < REFRESH_EVERY_DAYS * 864e5) return json({ status: 'too_soon', added: 0 });
     if (!r.website) return json({ status: 'no_website', added: 0 });
     const used = await claimRefresh();
     if (used) return used;
@@ -588,7 +594,7 @@ Deno.serve(async (req) => {
   const since = new Date(Date.now() - 864e5).toISOString();
   const { count } = await admin.from('menu_fetches').select('*', { count: 'exact', head: true })
     .eq('requested_by', user.id).gte('attempted_at', since);
-  if ((count ?? 0) >= DAILY_LIMIT) return json({ status: 'limit', added: 0 });
+  if (!anytime && (count ?? 0) >= DAILY_LIMIT) return json({ status: 'limit', added: 0 });
 
   await admin.from('menu_fetches').upsert({ restaurant_id: r.id, requested_by: user.id, status: 'running', attempted_at: new Date().toISOString(), dishes_added: 0 });
   const finish = async (status: string, added = 0, website: string | null = null) => {

@@ -18,25 +18,31 @@ type Report = {
   report_id: string; kind: 'review' | 'comment'; reported_at: string; reason: string; reported_by: string;
   author: string | null; target_id: string; review_id: string | null; dish: string | null; body: string | null; reports: number;
 };
+type MenuReport = {
+  restaurant_id: string; restaurant: string; postcode: string | null; problems: string[]; reports: number;
+  last_reported: string; reported_by: string | null;
+};
 
-// The team's private page: how Foodalise is doing, and reported posts to keep
-// or remove. Only admins can open it (see the dashboard migration).
+// The team's private page: how Foodalise is doing, reported posts to keep or remove,
+// and menus diners say are wrong. Only admins can open it (see the dashboard migration).
 export default function Dashboard() {
   const t = useTheme();
-  const [view, setView] = useState<'numbers' | 'reports'>('numbers');
+  const [view, setView] = useState<'numbers' | 'reports' | 'menus'>('numbers');
   const [stats, setStats] = useState<Stats | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
+  const [menus, setMenus] = useState<MenuReport[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [s, r] = await Promise.all([supabase.rpc('admin_stats'), supabase.rpc('admin_reports')]);
+    const [s, r, m] = await Promise.all([supabase.rpc('admin_stats'), supabase.rpc('admin_reports'), supabase.rpc('admin_menu_reports')]);
     if (s.error) { setError(/not allowed/i.test(s.error.message) ? "This page is only for the Foodalise team." : s.error.message); return; }
     setError(null);
     setStats(s.data as Stats);
     // Several reports about the same post show once.
     const seen = new Set<string>();
     setReports(((r.data as Report[] | null) ?? []).filter((x) => !seen.has(x.target_id) && !!seen.add(x.target_id)));
+    setMenus((m.data as MenuReport[] | null) ?? []);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -59,6 +65,16 @@ export default function Dashboard() {
     ]);
   }
 
+  // Open the restaurant to check its menu (you can refresh it there as often as you like),
+  // or clear the reports once it's sorted.
+  function actOnMenu(m: MenuReport) {
+    Alert.alert(m.restaurant, m.problems.join('\n'), [
+      { text: 'Open restaurant', onPress: () => router.push({ pathname: '/restaurant/[id]', params: { id: m.restaurant_id } }) },
+      { text: 'Sorted (clear reports)', onPress: async () => { await supabase.rpc('admin_clear_menu_reports', { place: m.restaurant_id }); load(); } },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
   if (error) return <View style={{ flex: 1, backgroundColor: t.surface }}><Empty title={error} /></View>;
 
   const max = Math.max(1, ...(stats?.per_day ?? []).map((d) => d.reviews));
@@ -66,7 +82,11 @@ export default function Dashboard() {
     <ScrollView style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 16 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={t.muted} />}>
       <UnderlineTabs value={view} onChange={setView}
-        options={[{ value: 'numbers', label: 'Numbers' }, { value: 'reports', label: `Reports${reports.length ? ` (${reports.length})` : ''}` }]} />
+        options={[
+          { value: 'numbers', label: 'Numbers' },
+          { value: 'reports', label: `Reports${reports.length ? ` (${reports.length})` : ''}` },
+          { value: 'menus', label: `Menus${menus.length ? ` (${menus.length})` : ''}` },
+        ]} />
 
       {view === 'numbers' && stats ? (
         <>
@@ -126,6 +146,21 @@ export default function Dashboard() {
             <Text style={{ color: t.muted, fontSize: 12 }}>Reported by @{r.reported_by} · {new Date(r.reported_at).toLocaleDateString('en-GB')}</Text>
           </Pressable>
         )) : <Empty title="No reports" body="Nothing has been reported. Reported reviews and comments will appear here." />
+      ) : null}
+
+      {view === 'menus' ? (
+        menus.length ? menus.map((m) => (
+          <Pressable key={m.restaurant_id} onPress={() => actOnMenu(m)}
+            style={({ pressed }) => [styles.box, { backgroundColor: t.card, borderColor: t.line, opacity: pressed ? 0.6 : 1 }]}>
+            <Text style={{ color: t.ink, fontWeight: '700' }}>
+              {m.restaurant}{m.postcode ? <Text style={{ color: t.muted, fontWeight: '400' }}> · {m.postcode}</Text> : null}
+            </Text>
+            <Text style={{ color: t.lo, fontWeight: '600' }}>{m.problems.join(' · ')}</Text>
+            <Text style={{ color: t.muted, fontSize: 12 }}>
+              {m.reports === 1 ? '1 report' : `${m.reports} reports`} · latest by @{m.reported_by ?? 'someone'} on {new Date(m.last_reported).toLocaleDateString('en-GB')}
+            </Text>
+          </Pressable>
+        )) : <Empty title="No menu reports" body={'When someone taps "Something wrong with this menu?", it shows up here.'} />
       ) : null}
 
       {view === 'numbers' && !stats ? <Button variant="ghost" title="Loading…" onPress={() => {}} disabled /> : null}
