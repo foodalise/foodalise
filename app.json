@@ -8,8 +8,11 @@
     "scheme": "foodalise",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "app.foodalise"
+      "supportsTablet": false,
+      "bundleIdentifier": "app.foodalise",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
