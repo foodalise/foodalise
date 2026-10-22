@@ -155,6 +155,7 @@ export function ProfileView({ userId }: { userId: string }) {
       ...(admin ? [{ text: 'Dashboard', onPress: () => router.push('/dashboard') }] : []),
       { text: 'Terms of Use', onPress: () => router.push('/terms') },
       { text: 'Privacy policy', onPress: () => router.push('/privacy') },
+      { text: 'Reviews policy', onPress: () => router.push('/reviews-policy') },
       { text: 'Data credits', onPress: () => router.push('/credits') },
       { text: 'Sign out', onPress: () => supabase.auth.signOut() },
       { text: 'Delete my account', style: 'destructive', onPress: confirmDeleteAccount },

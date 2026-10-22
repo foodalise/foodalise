@@ -80,6 +80,7 @@ function RootLayoutNav() {
         </Stack.Protected>
         <Stack.Screen name="privacy" options={{ title: 'Privacy policy' }} />
         <Stack.Screen name="terms" options={{ title: 'Terms of Use' }} />
+        <Stack.Screen name="reviews-policy" options={{ title: 'Reviews policy' }} />
         <Stack.Screen name="credits" options={{ title: 'Data credits' }} />
       </Stack>
     </ThemeProvider>
