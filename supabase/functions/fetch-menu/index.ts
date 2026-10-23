@@ -13,11 +13,13 @@
 //   menuLink: the Foodalise team only: read the menu from this page or PDF (not saved as the website).
 //   refresh: a diner tapped "Refresh menu". Statuses only it returns: too_soon, already_refreshed.
 //
-// Websites come from OpenStreetMap (free), then (only if SEARCH_MONTHLY_CAP > 0) a web search by Claude (about 1p
-// each, capped per month). If GOOGLE_PLACES_API_KEY is set, Google Places is tried
-// last, capped to stay inside Google's free monthly allowance. Google's terms don't
-// allow keeping what it returns, so a website found through Google is used once to
-// read the menu and never saved; it is looked up again at the next re-read.
+// Websites come from OpenStreetMap (free), then Google Places if GOOGLE_PLACES_API_KEY is
+// set (free up to GOOGLE_MONTHLY_CAP a month), then, for anything Google misses or once
+// its monthly allowance is used, a web search by Claude (about 2p each, up to
+// SEARCH_MONTHLY_CAP a month). Both limits can be changed in Supabase's Edge Function
+// secrets without a code change. Google's terms don't allow keeping what it returns,
+// so a website found through Google is used once to read the menu and never saved
+// (the dishes are kept); it is looked up again at the next re-read.
 // Sites that build their menu with JavaScript after loading (Square Online, Wix and
 // other ordering sites) arrive empty, so if the plain read finds no dishes, the page
 // is read again through Jina Reader (free), which loads it in a real browser first.
@@ -34,8 +36,15 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 // How long before a restaurant is tried again, by what happened last time.
 const RETRY_AFTER_DAYS: Record<string, number> = { done: 60, no_menu: 30, no_website: 14, unreadable: 7, error: 1, running: 0.01 };
 const DAILY_LIMIT = 30; // restaurants one person can trigger a day
-const GOOGLE_FREE_MONTHLY = 950; // Google gives 1,000 free website lookups a month; stay under it
-const SEARCH_MONTHLY_CAP = 0; // web searches a month, about 1p each; 0 keeps it free (Jay's choice)
+// Monthly limits, each overridable with a Supabase secret of the same name (0 turns one off).
+const monthlyCap = (name: string, fallback: number) => {
+  const set = Number(Deno.env.get(name));
+  return Number.isFinite(set) && Deno.env.get(name)?.trim() ? Math.max(0, Math.floor(set)) : fallback;
+};
+// Google gives 1,000 free website lookups a month; stay under it so it never bills.
+const GOOGLE_MONTHLY_CAP = monthlyCap('GOOGLE_MONTHLY_CAP', 950);
+// Web searches a month once Google has nothing, about 2p each: 250 is about £5 (Jay's choice, 2026-10-23).
+const SEARCH_MONTHLY_CAP = monthlyCap('SEARCH_MONTHLY_CAP', 250);
 const OVERPASS_SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 // Listing and delivery sites aren't the restaurant's own website.
 const NOT_OWN_SITE = ['deliveroo.co.uk', 'ubereats.com', 'just-eat.co.uk', 'tripadvisor.co.uk', 'tripadvisor.com', 'facebook.com', 'instagram.com', 'google.com', 'yelp.co.uk', 'yelp.com', 'opentable.co.uk', 'opentable.com', 'thefork.co.uk', 'tiktok.com', 'x.com', 'twitter.com', 'foodhygiene.food.gov.uk', 'ratings.food.gov.uk', 'restaurantguru.com', 'menulist.menu', 'sirved.com', 'hungryhouse.co.uk', 'yell.com', 'squaremeal.co.uk', 'timeout.com'];
@@ -179,8 +188,16 @@ async function underMonthlyCap(admin: SupabaseClient<any>, key: string, cap: num
   return true;
 }
 
-// About 1p: Claude Haiku searches the web for the restaurant's own website.
+// About 2p: Claude Haiku searches the web for the restaurant's own website.
 async function websiteFromSearch(admin: SupabaseClient<any>, name: string, address: string | null, postcode: string | null) {
+  try {
+    return await searchForWebsite(admin, name, address, postcode);
+  } catch (e) {
+    console.warn('web search failed', e); // a failed search shouldn't stop the restaurant being tried again later
+    return null;
+  }
+}
+async function searchForWebsite(admin: SupabaseClient<any>, name: string, address: string | null, postcode: string | null) {
   if (!(await underMonthlyCap(admin, `search-${new Date().toISOString().slice(0, 7)}`, SEARCH_MONTHLY_CAP))) return null;
   const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
   const where = [address, postcode].filter(Boolean).join(', ');
@@ -197,15 +214,18 @@ async function websiteFromSearch(admin: SupabaseClient<any>, name: string, addre
     }],
   });
   const text = response.content.filter((b) => b.type === 'text').map((b) => b.type === 'text' ? b.text : '').join(' ');
-  const url = text.match(/https?:\/\/[^\s)"'<>\]]+/i)?.[0] ?? text.match(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:co\.uk|com|uk|london|net|org|restaurant|cafe)\b[^\s)"'<>\]]*/i)?.[0];
-  return url && isOwnSite(url) ? url.replace(/[.,]+$/, '') : null;
+  if (/^\s*NONE\b/i.test(text)) return null;
+  // The first address in the answer that is the restaurant's own site.
+  const urls = [...text.matchAll(/https?:\/\/[^\s)"'<>\]]+/gi)].map((m) => m[0]);
+  if (!urls.length) urls.push(...[...text.matchAll(/\b(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:co\.uk|com|uk|london|net|org|restaurant|cafe)\b[^\s)"'<>\]]*/gi)].map((m) => m[0]));
+  return urls.map((u) => u.replace(/[.,]+$/, '')).find(isOwnSite) ?? null;
 }
 
-// Optional fallback, capped below Google's free monthly allowance so it never bills.
+// Capped below Google's free monthly allowance so it never bills.
 async function websiteFromGoogle(admin: SupabaseClient<any>, name: string, postcode: string | null, lat: number | null, lng: number | null) {
   const key = Deno.env.get('GOOGLE_PLACES_API_KEY');
   if (!key) return null;
-  if (!(await underMonthlyCap(admin, new Date().toISOString().slice(0, 7), GOOGLE_FREE_MONTHLY))) return null;
+  if (!(await underMonthlyCap(admin, new Date().toISOString().slice(0, 7), GOOGLE_MONTHLY_CAP))) return null;
 
   const res = await fetchWithTimeout('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
@@ -216,7 +236,11 @@ async function websiteFromGoogle(admin: SupabaseClient<any>, name: string, postc
       ...(lat != null && lng != null ? { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 200 } } } : {}),
     }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    // 403 usually means billing isn't switched on for the Google Cloud project.
+    console.warn('google places failed', res.status, await res.text().catch(() => ''));
+    return null;
+  }
   const place = (await res.json()).places?.[0];
   return place?.websiteUri && sameName(name, place.displayName?.text ?? '') && isOwnSite(place.websiteUri) ? place.websiteUri as string : null;
 }
@@ -716,12 +740,12 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     }
     let website: string | null = given ?? r.website;
     if (!website && r.latitude != null && r.longitude != null) website = await websiteFromOsm(r.name, r.latitude, r.longitude);
-    if (!website) website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
     let fromGoogle = false;
     if (!website) {
       website = await websiteFromGoogle(admin, r.name, r.postcode, r.latitude, r.longitude);
       fromGoogle = !!website;
     }
+    if (!website) website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
