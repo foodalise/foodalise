@@ -17,7 +17,7 @@ import { inviteFriends } from '@/lib/invite';
 import { changeAvatar, saveBio } from '@/lib/profile';
 import { compareTaste, myScores, type TasteMatch } from '@/lib/taste';
 import { deleteReview } from '@/lib/reviews';
-import { blockUser, deleteAccount, unblockUser } from '@/lib/safety';
+import { blockUser, deleteAccount, PROFILE_REPORT_REASONS, reportProfile, unblockUser } from '@/lib/safety';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { firstPhoto, REVIEW_SELECT, type FeedReview } from '@/lib/types';
 
@@ -105,6 +105,22 @@ export function ProfileView({ userId }: { userId: string }) {
     Alert.alert(`Block ${name}?`, "You won't see their reviews, and you'll stop following each other.", [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Block', style: 'destructive', onPress: run },
+    ]);
+  }
+
+  function report() {
+    if (!me) return;
+    const send = async (reason: string) => {
+      try {
+        await reportProfile(me, userId, reason);
+        Alert.alert('Thanks for telling us', 'The Foodalise team will check this profile.');
+      } catch (e) {
+        Alert.alert("Couldn't send the report", (e as Error).message);
+      }
+    };
+    Alert.alert(`Report @${username ?? ''}?`, "What's wrong with this profile?", [
+      ...PROFILE_REPORT_REASONS.map((reason) => ({ text: reason, onPress: () => send(reason) })),
+      { text: 'Cancel', style: 'cancel' as const },
     ]);
   }
 
@@ -368,9 +384,14 @@ export function ProfileView({ userId }: { userId: string }) {
           body={isMe ? 'Every dish you review will appear here.' : undefined} />
       )}
       {!isMe && me ? (
-        <Pressable accessibilityRole="button" onPress={toggleBlock} style={styles.link}>
-          <Text style={{ color: iBlocked ? t.muted : t.lo }}>{iBlocked ? `Unblock @${username ?? ''}` : `Block @${username ?? ''}`}</Text>
-        </Pressable>
+        <>
+          <Pressable accessibilityRole="button" onPress={report} style={styles.link}>
+            <Text style={{ color: t.muted }}>Report @{username ?? ''}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={toggleBlock} style={styles.link}>
+            <Text style={{ color: iBlocked ? t.muted : t.lo }}>{iBlocked ? `Unblock @${username ?? ''}` : `Block @${username ?? ''}`}</Text>
+          </Pressable>
+        </>
       ) : null}
     </ScrollView>
   );
