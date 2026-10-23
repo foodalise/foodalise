@@ -7,9 +7,12 @@
 // How people reach the Foodalise team about their data or a post. Also the
 // support email for the App Store.
 export const CONTACT_EMAIL = 'foodalise.app@gmail.com';
-// Who runs Foodalise, named in the privacy policy. Change to the company's name
-// and registered address once there is one.
-export const OPERATOR = 'Jay Pithwa';
+// Who runs Foodalise, named in the privacy policy, the terms and the website footer.
+// UK law asks for the company's number and registered office wherever it is named.
+export const OPERATOR = 'Foodalise Ltd';
+export const COMPANY_NUMBER = '17538657';
+export const REGISTERED_OFFICE = '167-169 Great Portland Street, London, W1W 5PF';
+export const COMPANY_DETAILS = `${OPERATOR} is a company registered in England and Wales (company number ${COMPANY_NUMBER}). Registered office: ${REGISTERED_OFFICE}.`;
 
 export type LegalPage = { title: string; updated: string; sections: [string, string][]; footer: string };
 
@@ -17,7 +20,7 @@ export const PRIVACY: LegalPage = {
   title: 'Privacy policy',
   updated: '23 October 2026',
   sections: [
-    ['Who we are', `Foodalise is an app for photographing, scoring and sharing the dishes you eat at restaurants in the UK. It is run by ${OPERATOR}, who is responsible for your data (the "data controller"). Contact: ${CONTACT_EMAIL}.`],
+    ['Who we are', `Foodalise is an app for photographing, scoring and sharing the dishes you eat at restaurants in the UK. It is run by ${OPERATOR} (company number ${COMPANY_NUMBER}, registered office ${REGISTERED_OFFICE}), which is responsible for your data (the "data controller"). Contact: ${CONTACT_EMAIL}.`],
     ['What we collect', 'Your email address and password (to sign you in), your username, profile photo, bio and favourite cuisines, and what you post: reviews, scores, dish photos, menu photos, comments, yums (likes), who you follow, dishes and restaurants you save, and any posts you report or people you block. If you allow notifications, we keep a code for your phone so we can send them.'],
     ['Why we use it', 'To run the app for you, as our agreement with you (the Terms of Use). We also use reports, blocks and posting limits to keep Foodalise safe and stop fake reviews, which is in everyone\'s legitimate interest. We do not sell your data, show you adverts or use it to train AI.'],
     ['What is public', 'Your username, profile photo, bio, reviews, scores, dish photos, comments, your Want to try list and who you follow can be seen by anyone using Foodalise. Your email address is never shown.'],
@@ -35,8 +38,9 @@ export const PRIVACY: LegalPage = {
 // The rules for using Foodalise. Agreed to when creating an account.
 export const TERMS: LegalPage = {
   title: 'Terms of Use',
-  updated: '22 October 2026',
+  updated: '23 October 2026',
   sections: [
+    ['Who we are', `Foodalise is run by ${OPERATOR} ("we"). ${COMPANY_DETAILS}`],
     ['Using Foodalise', 'Foodalise lets you photograph, score and share the dishes you eat at restaurants. You need to be 13 or older to make an account. Keep your password safe; you are responsible for what is posted from your account.'],
     ['Your posts', 'You own the photos, scores and reviews you post. By posting them you let Foodalise store, show and share them in the app, and use them to promote Foodalise, without paying you. This stops when you delete the post or your account, apart from copies other people already shared or short-lived backups.'],
     ['Be fair and honest', "Only review dishes you actually ate, and give your honest opinion. Don't post fake reviews, including reviews of your own restaurant or a rival's. Only post photos you took or have permission to use. If you got the dish free or were paid, say so in your review. Our Reviews policy (in Settings) has the details."],

@@ -19,7 +19,7 @@ const source = readFileSync(join(root, 'lib/legal.ts'), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
 const legal = {};
 new Function('exports', outputText)(legal);
-const { CONTACT_EMAIL, OPERATOR, PRIVACY, TERMS, REVIEWS_POLICY } = legal;
+const { CONTACT_EMAIL, OPERATOR, COMPANY_NUMBER, REGISTERED_OFFICE, PRIVACY, TERMS, REVIEWS_POLICY } = legal;
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 // Email addresses and ico.org.uk become links.
@@ -58,7 +58,8 @@ ${body}
 </main>
 <footer>
 <nav><a href="${up}privacy/">Privacy policy</a><a href="${up}terms/">Terms of Use</a><a href="${up}reviews-policy/">Reviews policy</a><a href="mailto:${esc(CONTACT_EMAIL)}">Contact</a></nav>
-<p>&copy; ${year} ${esc(OPERATOR)}. Restaurant data from the Food Standards Agency under the Open Government Licence v3.0.</p>
+<p>&copy; ${year} ${esc(OPERATOR)}, registered in England and Wales, company number ${esc(COMPANY_NUMBER)}. Registered office: ${esc(REGISTERED_OFFICE)}.</p>
+<p>Restaurant data from the Food Standards Agency under the Open Government Licence v3.0.</p>
 </footer>
 </body>
 </html>
