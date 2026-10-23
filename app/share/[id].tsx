@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 
 import { Wordmark } from '@/components/Logo';
@@ -48,8 +49,18 @@ export default function ShareScreen() {
       {review && photo ? (
         <View ref={card} collapsable={false} style={[styles.card, { width: cardWidth, height: cardWidth * 1.25 }]}>
           <Image source={{ uri: photoUrl(photo) }} style={StyleSheet.absoluteFill} contentFit="cover" onLoad={() => setLoaded(true)} />
-          <View style={styles.shade} />
           <View style={styles.info}>
+            {/* A soft shadow behind the words only, fading out above them so the photo stays clear. */}
+            <Svg style={styles.shade} preserveAspectRatio="none" viewBox="0 0 1 1">
+              <Defs>
+                <LinearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor="#000" stopOpacity="0" />
+                  <Stop offset="0.45" stopColor="#000" stopOpacity="0.35" />
+                  <Stop offset="1" stopColor="#000" stopOpacity="0.65" />
+                </LinearGradient>
+              </Defs>
+              <Rect x="0" y="0" width="1" height="1" fill="url(#shade)" />
+            </Svg>
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={styles.dish} numberOfLines={2}>{dish?.name}</Text>
               {place ? (
@@ -81,13 +92,14 @@ export default function ShareScreen() {
 
 const styles = StyleSheet.create({
   card: { borderRadius: 18, overflow: 'hidden', backgroundColor: brand.ink, justifyContent: 'flex-end' },
-  shade: { position: 'absolute', left: 0, right: 0, bottom: 0, top: '55%', backgroundColor: 'rgba(20,20,20,0.55)' },
-  info: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, paddingHorizontal: 18, paddingBottom: 12 },
-  dish: { color: brand.white, fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
+  // Starts 40pt above the words so the fade has room; the info box itself is only as tall as its text.
+  shade: { position: 'absolute', left: 0, right: 0, bottom: 0, top: -40 },
+  info: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 14 },
+  dish: { color: brand.white, fontSize: 24, fontWeight: '900', letterSpacing: -0.5, textShadowColor: 'rgba(0,0,0,0.35)', textShadowRadius: 6 },
   place: { color: brand.white, fontSize: 15, opacity: 0.9 },
   by: { color: brand.white, fontSize: 13, opacity: 0.75, marginTop: 4 },
-  score: { width: 72, height: 72, borderRadius: 36, borderWidth: 3, borderColor: brand.white, alignItems: 'center', justifyContent: 'center' },
-  scoreNum: { color: brand.white, fontSize: 24, fontWeight: '900' },
-  scoreOf: { color: brand.white, fontSize: 11, opacity: 0.8, marginTop: -2 },
+  score: { width: 56, height: 56, borderRadius: 28, borderWidth: 2.5, borderColor: brand.white, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' },
+  scoreNum: { color: brand.white, fontSize: 19, fontWeight: '900' },
+  scoreOf: { color: brand.white, fontSize: 9, opacity: 0.8, marginTop: -2 },
   brandBar: { backgroundColor: brand.ink, paddingVertical: 10, alignItems: 'center' },
 });
