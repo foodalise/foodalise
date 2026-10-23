@@ -15,7 +15,7 @@ type Stats = {
   top_places: { name: string; reviews: number }[];
 };
 type Report = {
-  report_id: string; kind: 'review' | 'comment'; reported_at: string; reason: string; reported_by: string;
+  report_id: string; kind: 'review' | 'comment' | 'profile'; reported_at: string; reason: string; reported_by: string;
   author: string | null; target_id: string; review_id: string | null; dish: string | null; body: string | null; reports: number;
 };
 // How the menu finder looked for restaurant websites (see the lookup counts migration).
@@ -91,10 +91,12 @@ export default function Dashboard() {
   }
 
   function act(r: Report) {
-    Alert.alert(r.kind === 'review' ? 'Reported review' : 'Reported comment', r.body ?? '', [
+    const profile = r.kind === 'profile';
+    Alert.alert(profile ? `Reported profile @${r.author ?? ''}` : r.kind === 'review' ? 'Reported review' : 'Reported comment', r.body ?? '', [
+      ...(profile ? [{ text: 'Open profile', onPress: () => router.push({ pathname: '/user/[id]', params: { id: r.target_id } }) }] : []),
       ...(r.review_id ? [{ text: 'Open it', onPress: () => router.push({ pathname: '/comments/[id]', params: { id: r.review_id! } }) }] : []),
       { text: 'Keep it (dismiss)', onPress: async () => { await supabase.rpc('admin_dismiss', { kind: r.kind, target: r.target_id }); load(); } },
-      { text: 'Remove it', style: 'destructive', onPress: () => Alert.alert('Remove for good?', "This can't be undone.", [
+      { text: profile ? 'Reset profile' : 'Remove it', style: 'destructive', onPress: () => Alert.alert(profile ? 'Reset this profile?' : 'Remove for good?', profile ? 'Their username becomes a plain one, and their name, bio and photo are removed. Their reviews stay.' : "This can't be undone.", [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Remove', style: 'destructive', onPress: async () => { await supabase.rpc('admin_remove', { kind: r.kind, target: r.target_id }); load(); } },
       ]) },
@@ -279,7 +281,9 @@ export default function Dashboard() {
               {r.reason}{r.reports > 1 ? ` · reported ${r.reports} times` : ''}
             </Text>
             <Text style={{ color: t.ink }} numberOfLines={3}>
-              {r.kind === 'comment' ? 'Comment' : 'Review'} by @{r.author ?? 'deleted'}{r.dish ? ` on ${r.dish}` : ''}: {r.body || '(no text, photo only)'}
+              {r.kind === 'profile'
+                ? `Profile @${r.author ?? 'deleted'}: ${r.body || '(no name, bio or photo)'}`
+                : `${r.kind === 'comment' ? 'Comment' : 'Review'} by @${r.author ?? 'deleted'}${r.dish ? ` on ${r.dish}` : ''}: ${r.body || '(no text, photo only)'}`}
             </Text>
             <Text style={{ color: t.muted, fontSize: 12 }}>Reported by @{r.reported_by} · {new Date(r.reported_at).toLocaleDateString('en-GB')}</Text>
           </Pressable>

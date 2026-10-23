@@ -6,7 +6,7 @@ import { useTheme } from '@/constants/theme';
 // Data sources that require a credit wherever their data is used.
 const CREDITS: [string, string][] = [
   ['Restaurants and hygiene ratings', 'Food Standards Agency food hygiene rating data. Contains public sector information licensed under the Open Government Licence v3.0.'],
-  ['Restaurant websites', 'Partly from OpenStreetMap. © OpenStreetMap contributors, available under the Open Database Licence (ODbL).'],
+  ['Restaurants, food types and websites', 'Partly from OpenStreetMap. © OpenStreetMap contributors, available under the Open Database Licence (ODbL). Ask us at foodalise.app@gmail.com for a copy of the OpenStreetMap-based data we use, under the same licence.'],
   ['Menus', "Read from restaurants' own websites and from menu photos taken by diners, with the help of Claude AI by Anthropic."],
   ['Maps', 'Apple Maps.'],
 ];

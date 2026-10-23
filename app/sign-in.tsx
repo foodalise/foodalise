@@ -76,6 +76,12 @@ export default function SignIn() {
         setMessage(`@${username} is already taken. Try another username.`);
         return;
       }
+      const { data: rude } = await supabase.rpc('has_blocked_words', { t: username });
+      if (rude) {
+        setBusy(false);
+        setMessage('Please pick a different username.');
+        return;
+      }
     }
     const { error, data } = mode === 'in'
       ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
@@ -149,7 +155,7 @@ export default function SignIn() {
               <Button variant="ghost" title={mode === 'in' ? 'New here? Create an account' : 'Have an account? Sign in'}
                 onPress={() => { setMode(mode === 'in' ? 'up' : 'in'); setMessage(null); }} />
               <Text style={{ color: t.muted, fontSize: 13, textAlign: 'center', lineHeight: 19 }}>
-                {mode === 'up' ? 'By creating an account you agree to our ' : 'Read our '}
+                {mode === 'up' ? 'By creating an account you confirm you are 18 or over and agree to our ' : 'Read our '}
                 <Text style={{ textDecorationLine: 'underline' }} onPress={() => router.push('/terms')}>Terms of Use</Text>
                 {' and '}
                 <Text style={{ textDecorationLine: 'underline' }} onPress={() => router.push('/privacy')}>Privacy policy</Text>.

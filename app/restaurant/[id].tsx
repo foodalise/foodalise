@@ -427,7 +427,8 @@ export default function RestaurantScreen() {
         </View>
       ) : null}
       <Text style={{ color: t.muted, fontSize: 11, marginTop: 8 }}>
-        Restaurant details and hygiene rating from the Food Standards Agency, under the Open Government Licence v3.0.
+        Menus, prices and diet labels can be wrong or out of date. Always check allergens and dietary needs with the restaurant.
+        {'\n'}Restaurant details and hygiene rating from the Food Standards Agency, under the Open Government Licence v3.0.
       </Text>
       {/* Room below a short list of results, so the search box can still sit at the top. */}
       {finding || words.length ? <View style={{ height }} /> : null}

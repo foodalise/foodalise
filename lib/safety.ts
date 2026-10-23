@@ -2,12 +2,21 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 
 import { supabase } from './supabase';
 
-export const REPORT_REASONS = ['Offensive or abusive', 'Looks fake or paid for', 'Spam or misleading', 'Inappropriate photo', 'Not about food'];
+export const REPORT_REASONS = ['Offensive or abusive', 'Illegal or dangerous', 'Looks fake or paid for', 'Spam or misleading', 'Inappropriate photo', 'Not about food'];
 
 // Flags a review for the Foodalise team and hides it from you straight away.
 export async function reportReview(reporterId: string, reviewId: string, reason: string) {
   const { error } = await supabase.from('reports').insert({ reporter_id: reporterId, review_id: reviewId, reason });
   // Already reported by you: nothing more to do.
+  if (error && error.code !== '23505') throw new Error(`Couldn't send the report: ${error.message}`);
+}
+
+// Reasons someone might report a whole profile (its username, name, bio or photo).
+export const PROFILE_REPORT_REASONS = ['Offensive or abusive', 'Illegal or dangerous', 'Inappropriate photo', 'Pretending to be someone else', 'Spam or misleading'];
+
+// Flags a profile for the Foodalise team.
+export async function reportProfile(reporterId: string, profileId: string, reason: string) {
+  const { error } = await supabase.from('reports').insert({ reporter_id: reporterId, profile_id: profileId, reason });
   if (error && error.code !== '23505') throw new Error(`Couldn't send the report: ${error.message}`);
 }
 
