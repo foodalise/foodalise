@@ -701,7 +701,8 @@ Deno.serve(async (req) => {
     // Each restaurant's menu can be refreshed at most once a month.
     const lastRead = r.menu_checked_at ?? (last?.status === 'done' ? last.attempted_at : null);
     if (!anytime && lastRead && Date.now() - new Date(lastRead).getTime() < REFRESH_EVERY_DAYS * 864e5) return json({ status: 'too_soon', added: 0 });
-    if (!r.website && !menuLink) return json({ status: 'no_website', added: 0 });
+    // No website saved yet: a refresh looks for one again (map, Google, web search)
+    // rather than stopping, so a restaurant isn't stuck once the first look missed it.
     const used = await claimRefresh();
     if (used) return used;
   } else if (last && !given && Date.now() - new Date(last.attempted_at).getTime() < (RETRY_AFTER_DAYS[last.status] ?? 1) * 864e5) {

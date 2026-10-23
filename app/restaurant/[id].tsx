@@ -29,7 +29,7 @@ const REFRESH_RESULT: Record<string, string> = {
   done: 'The menu is up to date.',
   too_soon: 'This menu was refreshed in the last month. Try again later, or tell us what looks wrong.',
   already_refreshed: "You've already refreshed this menu. Tell us what looks wrong instead and we'll check it.",
-  no_website: "We don't know where their menu is online. Tell us what looks wrong and we'll check it.",
+  no_website: "We couldn't find their website. If you know it, type it in below, or snap the menu.",
   no_menu: "We couldn't read a newer menu from their website, so we've kept this one.",
   unreadable: "Their website wouldn't let us in, so we've kept this menu.",
   limit: "You've refreshed lots of menus today. Try again tomorrow.",
