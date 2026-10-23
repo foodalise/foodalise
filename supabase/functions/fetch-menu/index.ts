@@ -110,8 +110,16 @@ const json = (body: unknown, status = 200) =>
 
 // "DISHOOM LTD" and "Dishoom Covent Garden" -> comparable word sets.
 const STOP = new Set(['the', 'ltd', 'limited', 'restaurant', 'restaurants', 'cafe', 'and', 'bar', 'kitchen', 'co', 'plc', 'uk', 'london']);
+// Words that say what kind of place it is rather than which one: the food hygiene list
+// has "Moka Indian" where its website and the map say "Moka Dining".
+const KIND = new Set(['indian', 'italian', 'chinese', 'thai', 'japanese', 'korean', 'vietnamese', 'turkish', 'lebanese',
+  'greek', 'mexican', 'spanish', 'french', 'portuguese', 'persian', 'nepalese', 'pakistani', 'bangladeshi', 'caribbean',
+  'african', 'american', 'british', 'cuisine', 'dining', 'grill', 'lounge', 'bistro', 'brasserie', 'eatery', 'takeaway',
+  'tandoori', 'diner', 'canteen', 'trattoria', 'pizzeria', 'cantina']);
 function words(name: string) {
-  return name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w && !STOP.has(w));
+  const all = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w && !STOP.has(w));
+  const own = all.filter((w) => !KIND.has(w));
+  return own.length ? own : all; // "Indian Lounge" has only kind words, so keep them
 }
 function sameName(a: string, b: string) {
   const wa = words(a), wb = words(b);
@@ -258,26 +266,66 @@ async function getPage(url: string): Promise<Page | null> {
   return { url: res.url || url, html, text: htmlToText(html) };
 }
 
-// Links on the homepage that look like the menu, best first.
-function menuLinks(page: Page) {
+// Links on a page that look like the menu, with a score: the main food menu first,
+// then lunch, brunch and the like, with drinks, seasonal and event menus last (Moka
+// Dining's menu page lists 12 PDFs, drinks, Christmas and two from 2023 among them,
+// and only a few get read). PDFs from years before a page's newest ones count for
+// less, since they're usually old menus nobody took down.
+type Scored = [href: string, score: number];
+const safeDecode = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+const MAIN_MENU = /food|\beat\b|dinner|evening|a[ -]?la[ -]?carte|all[ -]?day|\bmains?\b|starter/;
+const OTHER_MEAL = /lunch|brunch|breakfast|takeaway|thali|set menu/;
+const SIDE_MENU = /drink|cocktail|wine|beer|christmas|festive|xmas|bottomless|valentine|mother|new[ -]?year|party|private|hire|event|whats?[ -]?on|what-s-on|offer|gift|voucher|allergen|book/;
+function menuLinks(page: Page): Scored[] {
   const base = new URL(page.url);
-  const found = new Map<string, number>();
+  const links: { href: URL; hay: string; isPdf: boolean }[] = [];
   for (const m of (page.html ?? '').matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     let href: URL;
     try { href = new URL(m[1], base); } catch { continue; }
     if (!/^https?:$/.test(href.protocol)) continue;
     const isPdf = href.pathname.toLowerCase().endsWith('.pdf');
-    const hay = `${href.pathname} ${htmlToText(m[2])}`.toLowerCase();
+    const hay = `${safeDecode(href.pathname)} ${htmlToText(m[2])}`.toLowerCase().replace(/[_-]/g, ' ');
     // Another site only when the link says it's the menu (many restaurants keep theirs on
     // a menu app, like Regency Club on Served), and never a delivery or review site.
     if (href.hostname !== base.hostname && !isPdf && !(/menu/.test(hay) && isOwnSite(href.href))) continue;
-    let score = /menu/.test(hay) ? 3 : 0;
-    if (/food|eat|dinner|lunch|brunch|drinks/.test(hay)) score += 1;
-    if (score && isPdf) score += 1;
-    if (score && !found.has(href.href)) found.set(href.href, score);
+    links.push({ href, hay, isPdf });
   }
-  return [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([href]) => href);
+  const year = (u: URL) => Number(u.pathname.match(/\/(20\d\d)\//)?.[1] ?? 0);
+  const newest = Math.max(0, ...links.filter((l) => l.isPdf).map((l) => year(l.href)));
+  const found = new Map<string, number>();
+  for (const { href, hay, isPdf } of links) {
+    const main = MAIN_MENU.test(hay);
+    let score = /menu/.test(hay) ? 3 : 0;
+    if (main) score += 2;
+    else if (OTHER_MEAL.test(hay)) score += 1;
+    if (score && isPdf) score += 1;
+    if (!main && SIDE_MENU.test(hay)) score -= 3;
+    if (isPdf && year(href) && year(href) < newest - 1) score -= 2;
+    if (score > 0 && (found.get(href.href) ?? 0) < score) found.set(href.href, score);
+  }
+  return [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
 }
+
+// Links to the branch in this restaurant's town, for chains whose homepage just asks
+// which restaurant you want (Moka Dining's homepage: "Northwood" or "St. Albans").
+const STREET = new Set(['road', 'street', 'lane', 'avenue', 'parade', 'place', 'square', 'court', 'house', 'unit', 'high', 'north', 'south', 'east', 'west', 'upper', 'lower', 'london']);
+function branchLinks(page: Page, address: string | null) {
+  const towns = (address ?? '').toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 4 && !STREET.has(w));
+  if (!towns.length) return [];
+  const base = new URL(page.url);
+  const found: string[] = [];
+  for (const m of (page.html ?? '').matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    try {
+      const href = new URL(m[1], base);
+      const hay = `${href.pathname} ${htmlToText(m[2])}`.toLowerCase();
+      if (href.hostname === base.hostname && href.href !== base.href && towns.some((t) => hay.includes(t)) && !found.includes(href.href)) found.push(href.href);
+    } catch { /* not a link */ }
+  }
+  return found.slice(0, 1);
+}
+
+// Where most restaurant sites keep the menu, for homepages that don't link to it.
+const USUAL_MENU_PATHS = ['/menu/', '/menus/', '/food/', '/our-menu/'];
 
 // The page as a browser shows it after its scripts run, as text, via Jina Reader.
 // Free without a key (rate limited); JINA_API_KEY raises the limit.
@@ -427,26 +475,41 @@ async function classifyCuisine(name: string, dishes: string[]): Promise<string> 
 // kept the real menu on a menu app), so a homepage is never taken as the whole menu
 // while a menu page or PDF can be read.
 const FEW_DISHES = 25; // fewer than this from the homepage alone: look harder
-async function readWebsite(website: string): Promise<{ reachable: boolean } & Menu> {
-  const home = await getPage(website).catch(() => null);
+async function readWebsite(website: string, address: string | null = null): Promise<{ reachable: boolean } & Menu> {
+  let home = await getPage(website).catch(() => null);
   const menuPages: Page[] = [];
   const tried = new Set([website]);
+  let next = home ? menuLinks(home).map(([href]) => href) : [];
+  // Only for a homepage, not a menu page or PDF someone gave us.
+  const isHomepage = !!home?.html && new URL(website).pathname.replace(/\/$/, '') === '';
+  // A homepage that only asks which restaurant: go to this one's own homepage.
+  if (isHomepage && !next.length) {
+    for (const link of branchLinks(home!, address)) {
+      tried.add(link);
+      const branch = await getPage(link).catch(() => null);
+      if (branch?.html) { home = branch; next = menuLinks(branch).map(([href]) => href); }
+    }
+  }
+  // Still no link to the menu: try where sites usually keep it.
+  if (isHomepage && !next.length) next = USUAL_MENU_PATHS.map((p) => new URL(p, home!.url).href);
   // Follow menu links from the homepage, then one step further, since many sites
-  // keep their menus as PDFs on a separate "Menus" page.
-  let next = home ? menuLinks(home) : [];
+  // keep their menus as PDFs on a separate "Menus" page. The second step takes the
+  // best-scoring links from all the pages the first step found.
   for (let hop = 0; hop < 2 && next.length; hop++) {
-    const found: string[] = [];
+    const found: Scored[] = [];
     for (const link of next) {
       if (tried.has(link) || menuPages.length >= MAX_PAGES - 1) continue;
       tried.add(link);
       let page = await getPage(link).catch(() => null);
+      // A guessed address that isn't there often lands back on the homepage.
+      if (page && page.url !== link && page.url.replace(/\/$/, '') === home!.url.replace(/\/$/, '')) continue;
       // A menu app that draws its menu with JavaScript arrives as an empty "Loading..." page.
       if (page?.html && (page.text ?? '').length < 300) page = await getRenderedPage(link) ?? page;
       if (!page) continue;
       menuPages.push(page);
       if (page.html) found.push(...menuLinks(page));
     }
-    next = found;
+    next = found.sort((a, b) => b[1] - a[1]).map(([href]) => href);
   }
   const [fromMenus, fromHome] = await Promise.all([
     menuPages.length ? readMenu(menuPages) : NO_MENU,
@@ -647,7 +710,7 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
   try {
     // A menu link from the team is read in place of the website, and isn't saved as it.
     if (menuLink) {
-      const read = await readWebsite(menuLink);
+      const read = await readWebsite(menuLink, r.address);
       if (!read.reachable) return await finish('unreadable', 0, r.website);
       return await saveMenu(admin, r, read, r.website, finish);
     }
@@ -662,7 +725,7 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
-    const read = await readWebsite(website);
+    const read = await readWebsite(website, r.address);
     // Never stored when it came from Google (see the note at the top).
     const keep = fromGoogle ? null : website;
     if (!read.reachable) return await finish('unreadable', 0, keep);
