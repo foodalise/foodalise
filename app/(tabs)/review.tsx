@@ -15,12 +15,13 @@ import { supabase } from '@/lib/supabase';
 import type { Restaurant } from '@/lib/types';
 
 type Dish = { id: string; name: string; section: string | null };
-type Scores = { taste: number; presentation: number; value: number };
+type Scores = { taste: number; presentation: number; ingredients: number; value: number };
 
-const START: Scores = { taste: 8, presentation: 8, value: 8 };
+const START: Scores = { taste: 8, presentation: 8, ingredients: 8, value: 8 };
 const CRITERIA: { key: keyof Scores; label: string }[] = [
   { key: 'taste', label: 'Taste' },
-  { key: 'presentation', label: 'Looks' },
+  { key: 'presentation', label: 'Presentation' },
+  { key: 'ingredients', label: 'Quality of ingredients' },
   { key: 'value', label: 'Value for money' },
 ];
 
@@ -134,7 +135,7 @@ export default function Review() {
   }
 
   const step = !restaurant ? 1 : !dish ? 2 : 3;
-  const overall = (scores.taste + scores.presentation + scores.value) / 3;
+  const overall = (scores.taste + scores.presentation + scores.ingredients + scores.value) / 4;
   const term = q.trim().toLowerCase();
   const shownDishes = dishes.filter((d) => !term || d.name.toLowerCase().includes(term));
 

@@ -11,10 +11,11 @@ import { choosePhoto, editReview, type PickedPhoto } from '@/lib/reviews';
 import { photoUrl, supabase } from '@/lib/supabase';
 import { firstPhoto, REVIEW_SELECT, type FeedReview } from '@/lib/types';
 
-type Scores = { taste: number; presentation: number; value: number };
+type Scores = { taste: number; presentation: number; ingredients: number; value: number };
 const CRITERIA: { key: keyof Scores; label: string }[] = [
   { key: 'taste', label: 'Taste' },
-  { key: 'presentation', label: 'Looks' },
+  { key: 'presentation', label: 'Presentation' },
+  { key: 'ingredients', label: 'Quality of ingredients' },
   { key: 'value', label: 'Value for money' },
 ];
 
@@ -35,9 +36,12 @@ export default function EditReview() {
     supabase.from('reviews').select(REVIEW_SELECT).eq('id', id).maybeSingle<FeedReview>().then(({ data }) => {
       setReview(data);
       if (!data) return;
-      // Reviews from before the three scores existed start each one at the overall score.
+      // Scores a review doesn't have yet (older reviews) start at its overall score.
       const start = Number(data.rating);
-      setScores({ taste: Number(data.taste ?? start), presentation: Number(data.presentation ?? start), value: Number(data.value ?? start) });
+      setScores({
+        taste: Number(data.taste ?? start), presentation: Number(data.presentation ?? start),
+        ingredients: Number(data.ingredients ?? start), value: Number(data.value ?? start),
+      });
       setBody(data.body ?? '');
     });
   }, [id]);
@@ -79,7 +83,7 @@ export default function EditReview() {
         <Text style={[styles.h, { color: t.ink }]}>{review.dishes?.name ?? 'Your review'}</Text>
         {review.dishes?.restaurants ? <Text style={{ color: t.muted }}>at {review.dishes.restaurants.name}</Text> : null}
       </View>
-      <OverallBar value={(scores.taste + scores.presentation + scores.value) / 3} />
+      <OverallBar value={(scores.taste + scores.presentation + scores.ingredients + scores.value) / 4} />
       {CRITERIA.map(({ key, label }) => (
         <ScoreSlider key={key} label={label} value={scores[key]} onChange={(n) => setScores((sc) => sc && ({ ...sc, [key]: n }))} />
       ))}

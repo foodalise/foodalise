@@ -40,25 +40,26 @@ async function uploadPhoto(userId: string, photo: PickedPhoto) {
   return path;
 }
 
-// The database recalculates rating from the three scores; this matches it.
-const overall = (taste: number, presentation: number, value: number) => Math.round(((taste + presentation + value) / 3) * 10) / 10;
+// The database recalculates rating from the four scores; this matches it.
+const overall = (...scores: number[]) => Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
 
 export type NewReview = {
   userId: string;
   dishId: string;
   taste: number;
   presentation: number;
+  ingredients: number;
   value: number;
   body: string;
   photo: PickedPhoto | null;
 };
 
 // Upload the photo first, so a failed upload never leaves a review without its picture.
-export async function postReview({ userId, dishId, taste, presentation, value, body, photo }: NewReview) {
+export async function postReview({ userId, dishId, taste, presentation, ingredients, value, body, photo }: NewReview) {
   const photoPath = photo ? await uploadPhoto(userId, photo) : null;
 
   const { data: review, error } = await supabase.from('reviews')
-    .insert({ user_id: userId, dish_id: dishId, taste, presentation, value, rating: overall(taste, presentation, value), body: body.trim() || null })
+    .insert({ user_id: userId, dish_id: dishId, taste, presentation, ingredients, value, rating: overall(taste, presentation, ingredients, value), body: body.trim() || null })
     .select('id').single();
   if (error || !review) {
     if (photoPath) await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
@@ -76,11 +77,11 @@ export async function postReview({ userId, dishId, taste, presentation, value, b
 
 // Changes your own review's scores and words, and swaps its photo if you picked a new one.
 // The new photo is attached before the old one is removed, so the review is never left without one.
-export async function editReview({ reviewId, userId, taste, presentation, value, body, photo }:
+export async function editReview({ reviewId, userId, taste, presentation, ingredients, value, body, photo }:
   Omit<NewReview, 'dishId'> & { reviewId: string }) {
   const photoPath = photo ? await uploadPhoto(userId, photo) : null;
   const { error } = await supabase.from('reviews')
-    .update({ taste, presentation, value, rating: overall(taste, presentation, value), body: body.trim() || null })
+    .update({ taste, presentation, ingredients, value, rating: overall(taste, presentation, ingredients, value), body: body.trim() || null })
     .eq('id', reviewId).eq('user_id', userId);
   if (error) {
     if (photoPath) await supabase.storage.from(PHOTO_BUCKET).remove([photoPath]);
