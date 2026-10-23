@@ -11,25 +11,33 @@ export type WishDish = {
   } | null;
 };
 
-// One restaurant on your list, with any dishes you've picked there.
+// One restaurant on a list, with any dishes picked there (each with when it was saved).
 export type WishPlace = {
   restaurant: WishRestaurant;
-  dishes: NonNullable<WishDish['dishes']>[];
+  dishes: (NonNullable<WishDish['dishes']> & { savedAt: string })[];
   savedAt: string;
 };
 
 const RESTAURANT_FIELDS = 'id, name, cuisine, latitude, longitude';
 
-// Everything you want to try, grouped by restaurant, most recently saved first.
-// Saving a dish puts its restaurant on the list too.
-export async function loadWishlist(): Promise<WishPlace[]> {
+// Your own id, for reading only your own list (everyone's lists can be seen on their profiles).
+async function myId() {
+  return (await supabase.auth.getSession()).data.session?.user.id ?? '';
+}
+
+// Everything someone wants to try (you, if no one is named), grouped by restaurant,
+// most recently saved first. Saving a dish puts its restaurant on the list too.
+export async function loadWishlist(userId?: string): Promise<WishPlace[]> {
+  const who = userId ?? await myId();
   const [dishes, places] = await Promise.all([
     supabase.from('wishlist')
       .select(`dish_id, created_at, dishes(id, name, avg_rating, review_count, restaurants(${RESTAURANT_FIELDS}))`)
+      .eq('user_id', who)
       .order('created_at', { ascending: false })
       .returns<WishDish[]>(),
     supabase.from('restaurant_wishlist')
       .select(`created_at, restaurants(${RESTAURANT_FIELDS})`)
+      .eq('user_id', who)
       .order('created_at', { ascending: false })
       .returns<{ created_at: string; restaurants: WishRestaurant | null }[]>(),
   ]);
@@ -43,7 +51,7 @@ export async function loadWishlist(): Promise<WishPlace[]> {
   for (const p of places.data ?? []) if (p.restaurants) add(p.restaurants, p.created_at);
   for (const w of dishes.data ?? []) {
     const r = w.dishes?.restaurants;
-    if (r && w.dishes) add(r, w.created_at).dishes.push(w.dishes);
+    if (r && w.dishes) add(r, w.created_at).dishes.push({ ...w.dishes, savedAt: w.created_at });
   }
   return [...byId.values()].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
@@ -53,14 +61,14 @@ export async function loadWishlist(): Promise<WishPlace[]> {
 let wanted: Promise<Set<string>> | null = null;
 export function wantedDishIds(refresh = false) {
   if (!wanted || refresh) {
-    wanted = Promise.resolve(supabase.from('wishlist').select('dish_id'))
+    wanted = myId().then((me) => supabase.from('wishlist').select('dish_id').eq('user_id', me))
       .then(({ data }) => new Set((data ?? []).map((w) => w.dish_id as string)));
   }
   return wanted;
 }
 
 export async function isWanted(dishId: string) {
-  const { count } = await supabase.from('wishlist').select('*', { count: 'exact', head: true }).eq('dish_id', dishId);
+  const { count } = await supabase.from('wishlist').select('*', { count: 'exact', head: true }).eq('user_id', await myId()).eq('dish_id', dishId);
   return (count ?? 0) > 0;
 }
 
@@ -74,10 +82,11 @@ export async function setWanted(userId: string, dishId: string, want: boolean) {
 
 // Whether a restaurant is on your list: saved itself, and how many of its dishes you've saved.
 export async function restaurantWanted(restaurantId: string) {
+  const me = await myId();
   const [place, dishes] = await Promise.all([
-    supabase.from('restaurant_wishlist').select('*', { count: 'exact', head: true }).eq('restaurant_id', restaurantId),
+    supabase.from('restaurant_wishlist').select('*', { count: 'exact', head: true }).eq('user_id', me).eq('restaurant_id', restaurantId),
     supabase.from('wishlist').select('dish_id, dishes!inner(restaurant_id)', { count: 'exact', head: true })
-      .eq('dishes.restaurant_id', restaurantId),
+      .eq('user_id', me).eq('dishes.restaurant_id', restaurantId),
   ]);
   return { place: (place.count ?? 0) > 0, dishes: dishes.count ?? 0 };
 }
@@ -91,7 +100,7 @@ export async function setRestaurantWanted(userId: string, restaurantId: string, 
     return;
   }
   const { data: saved } = await supabase.from('wishlist').select('dish_id, dishes!inner(restaurant_id)')
-    .eq('dishes.restaurant_id', restaurantId);
+    .eq('user_id', userId).eq('dishes.restaurant_id', restaurantId);
   const [a, b] = await Promise.all([
     supabase.from('restaurant_wishlist').delete().eq('user_id', userId).eq('restaurant_id', restaurantId),
     saved?.length
