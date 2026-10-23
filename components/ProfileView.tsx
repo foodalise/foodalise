@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from '@/components/Avatar';
 import { Badges } from '@/components/Badges';
 import { PhotoStats } from '@/components/PhotoStats';
+import { Recommendations } from '@/components/Recommendations';
 import { Button, Empty, Field, PhotoScore, ReviewCard, UnderlineTabs } from '@/components/ui';
 import { WishlistList } from '@/components/WishlistList';
 import { formatScore, useTheme } from '@/constants/theme';
@@ -41,7 +42,7 @@ export function ProfileView({ userId }: { userId: string }) {
   const [iFollow, setIFollow] = useState(false);
   const [iBlocked, setIBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<'items' | 'restaurants' | 'wishlist'>('items');
+  const [view, setView] = useState<'items' | 'restaurants' | 'top' | 'wishlist'>('items');
   const [loading, setLoading] = useState(true);
   const [taste, setTaste] = useState<TasteMatch>(null);
   const [error, setError] = useState<string | null>(null);
@@ -333,14 +334,15 @@ export function ProfileView({ userId }: { userId: string }) {
       ) : null}
       {iBlocked ? <Text style={{ color: t.muted }}>You've blocked this person, so you can't see their reviews.</Text> : null}
       {error ? <Text style={{ color: t.lo }}>{error}</Text> : null}
-      {reviews.length || isMe ? (
-        <UnderlineTabs value={view} onChange={setView}
+      {iBlocked || loading ? null : (
+        <UnderlineTabs spread value={view} onChange={setView}
           options={[{ value: 'items', label: 'Dishes' }, { value: 'restaurants', label: 'Places' },
-            ...(isMe ? [{ value: 'wishlist' as const, label: 'Want to try' }] : [])]} />
-      ) : null}
-      {view === 'wishlist' && isMe ? <WishlistList /> : null}
-      {view !== 'wishlist' && reviews.length && isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
-      {view === 'wishlist' ? null : reviews.length && view === 'items' ? (
+            { value: 'top', label: 'Top 10' }, { value: 'wishlist', label: 'Want to try' }]} />
+      )}
+      {view === 'top' && !iBlocked ? <Recommendations reviews={reviews} isMe={isMe} username={username} /> : null}
+      {view === 'wishlist' && !iBlocked ? <WishlistList userId={userId} isMe={isMe} username={username} /> : null}
+      {(view === 'items' || view === 'restaurants') && reviews.length && isMe ? <Text style={{ color: t.muted, fontSize: 12 }}>Tap a photo to open or delete it.</Text> : null}
+      {view === 'wishlist' || view === 'top' || iBlocked ? null : reviews.length && view === 'items' ? (
         // Your own page is a photo grid; anyone else's reads like the Feed.
         isMe ? <View style={styles.grid}>{reviews.map(tile)}{addTile}</View> : <View style={{ gap: 16 }}>{reviews.map((r) => <ReviewCard key={r.id} review={r} />)}</View>
       ) : reviews.length ? (

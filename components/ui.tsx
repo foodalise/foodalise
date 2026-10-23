@@ -54,18 +54,20 @@ export function Chips({ items, style }: {
 }
 
 // Text tabs with an orange underline under the chosen one, e.g. Dishes | Places | Saved.
-export function UnderlineTabs<T extends string>({ options, value, onChange }: {
-  options: { value: T; label: string }[]; value: T; onChange: (v: T) => void;
+// spread: the tabs share the full width equally instead of sitting together on the left.
+export function UnderlineTabs<T extends string>({ options, value, onChange, spread = false }: {
+  options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; spread?: boolean;
 }) {
   const t = useTheme();
   return (
-    <View style={[styles.tabs, { borderBottomColor: t.line }]} accessibilityRole="tablist">
+    <View style={[styles.tabs, spread && { gap: 0 }, { borderBottomColor: t.line }]} accessibilityRole="tablist">
       {options.map((o) => {
         const on = o.value === value;
         return (
           <Pressable key={o.value} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(o.value)}
-            style={[styles.tab, { borderBottomColor: on ? t.accent : 'transparent' }]}>
-            <Text style={{ color: on ? t.ink : t.muted, fontWeight: '700', fontSize: 16 }}>{o.label}</Text>
+            style={[styles.tab, spread && styles.tabSpread, { borderBottomColor: on ? t.accent : 'transparent' }]}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}
+              style={{ color: on ? t.ink : t.muted, fontWeight: '700', fontSize: 16 }}>{o.label}</Text>
           </Pressable>
         );
       })}
@@ -323,6 +325,7 @@ const styles = StyleSheet.create({
   chip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
   tabs: { flexDirection: 'row', gap: 24, borderBottomWidth: StyleSheet.hairlineWidth },
   tab: { paddingBottom: 10, borderBottomWidth: 2.5 },
+  tabSpread: { flex: 1, alignItems: 'center', paddingHorizontal: 2 },
   button: { borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, alignItems: 'center' },
   buttonText: { fontWeight: '700', fontSize: 15 },
   field: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15 },
