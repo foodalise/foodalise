@@ -16,8 +16,9 @@
 // Websites come from OpenStreetMap (free), then Google Places if GOOGLE_PLACES_API_KEY is
 // set (free up to GOOGLE_MONTHLY_CAP a month), then, for anything Google misses or once
 // its monthly allowance is used, a web search by Claude (about 2p each, up to
-// SEARCH_MONTHLY_CAP a month). Both limits can be changed in Supabase's Edge Function
-// secrets without a code change. Google's terms don't allow keeping what it returns,
+// SEARCH_MONTHLY_CAP a month). The team sets both limits on the dashboard (lookup_limits);
+// the Supabase secrets of the same names are only used if that table has no row. Every
+// lookup, and every website it finds, is counted for the dashboard. Google's terms don't allow keeping what it returns,
 // so a website found through Google is used once to read the menu and never saved
 // (the dishes are kept); it is looked up again at the next re-read.
 // Sites that build their menu with JavaScript after loading (Square Online, Wix and
@@ -36,7 +37,8 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 // How long before a restaurant is tried again, by what happened last time.
 const RETRY_AFTER_DAYS: Record<string, number> = { done: 60, no_menu: 30, no_website: 14, unreadable: 7, error: 1, running: 0.01 };
 const DAILY_LIMIT = 30; // restaurants one person can trigger a day
-// Monthly limits, each overridable with a Supabase secret of the same name (0 turns one off).
+// Monthly limits when lookup_limits has none, each overridable with a Supabase secret of
+// the same name (0 turns one off).
 const monthlyCap = (name: string, fallback: number) => {
   const set = Number(Deno.env.get(name));
   return Number.isFinite(set) && Deno.env.get(name)?.trim() ? Math.max(0, Math.floor(set)) : fallback;
@@ -180,12 +182,23 @@ async function websiteFromOsm(name: string, lat: number, lng: number) {
   return null;
 }
 
-// Monthly counter kept in google_lookups, under its own key per service.
+// Monthly counters kept in google_lookups, under their own key per service ("osm-2026-10",
+// "google-found-2026-10"...; Google's own lookups are just "2026-10"). Shown on the dashboard.
+const thisMonth = () => new Date().toISOString().slice(0, 7);
+async function bump(admin: SupabaseClient<any>, key: string) {
+  const { data: used } = await admin.from('google_lookups').select('count').eq('month', key).maybeSingle();
+  await admin.from('google_lookups').upsert({ month: key, count: (used?.count ?? 0) + 1 });
+}
 async function underMonthlyCap(admin: SupabaseClient<any>, key: string, cap: number) {
   const { data: used } = await admin.from('google_lookups').select('count').eq('month', key).maybeSingle();
   if ((used?.count ?? 0) >= cap) return false;
   await admin.from('google_lookups').upsert({ month: key, count: (used?.count ?? 0) + 1 });
   return true;
+}
+// The monthly limit the team set on the dashboard, or the default above.
+async function limitFor(admin: SupabaseClient<any>, service: 'google' | 'search', fallback: number) {
+  const { data } = await admin.from('lookup_limits').select('monthly_cap').eq('service', service).maybeSingle();
+  return data?.monthly_cap ?? fallback;
 }
 
 // About 2p: Claude Haiku searches the web for the restaurant's own website.
@@ -198,7 +211,7 @@ async function websiteFromSearch(admin: SupabaseClient<any>, name: string, addre
   }
 }
 async function searchForWebsite(admin: SupabaseClient<any>, name: string, address: string | null, postcode: string | null) {
-  if (!(await underMonthlyCap(admin, `search-${new Date().toISOString().slice(0, 7)}`, SEARCH_MONTHLY_CAP))) return null;
+  if (!(await underMonthlyCap(admin, `search-${thisMonth()}`, await limitFor(admin, 'search', SEARCH_MONTHLY_CAP)))) return null;
   const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
   const where = [address, postcode].filter(Boolean).join(', ');
   const response = await client.messages.create({
@@ -225,7 +238,7 @@ async function searchForWebsite(admin: SupabaseClient<any>, name: string, addres
 async function websiteFromGoogle(admin: SupabaseClient<any>, name: string, postcode: string | null, lat: number | null, lng: number | null) {
   const key = Deno.env.get('GOOGLE_PLACES_API_KEY');
   if (!key) return null;
-  if (!(await underMonthlyCap(admin, new Date().toISOString().slice(0, 7), GOOGLE_MONTHLY_CAP))) return null;
+  if (!(await underMonthlyCap(admin, thisMonth(), await limitFor(admin, 'google', GOOGLE_MONTHLY_CAP)))) return null;
 
   const res = await fetchWithTimeout('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
@@ -740,13 +753,21 @@ async function readRestaurant(admin: SupabaseClient<any>, r: RestaurantRow, give
       return await saveMenu(admin, r, read, r.website, finish);
     }
     let website: string | null = given ?? r.website;
-    if (!website && r.latitude != null && r.longitude != null) website = await websiteFromOsm(r.name, r.latitude, r.longitude);
+    if (!website && r.latitude != null && r.longitude != null) {
+      await bump(admin, `osm-${thisMonth()}`);
+      website = await websiteFromOsm(r.name, r.latitude, r.longitude);
+      if (website) await bump(admin, `osm-found-${thisMonth()}`);
+    }
     let fromGoogle = false;
     if (!website) {
       website = await websiteFromGoogle(admin, r.name, r.postcode, r.latitude, r.longitude);
       fromGoogle = !!website;
+      if (website) await bump(admin, `google-found-${thisMonth()}`);
     }
-    if (!website) website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
+    if (!website) {
+      website = await websiteFromSearch(admin, r.name, r.address, r.postcode);
+      if (website) await bump(admin, `search-found-${thisMonth()}`);
+    }
     if (!website) return await finish('no_website');
     if (!/^https?:\/\//i.test(website)) website = `https://${website}`;
 
