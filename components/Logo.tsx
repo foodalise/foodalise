@@ -45,12 +45,15 @@ export function Wordmark({ size = 28, onDark }: { size?: number; onDark?: boolea
   const scheme = useColorScheme();
   const dark = onDark ?? scheme === 'dark';
   const color = dark ? brand.white : brand.ink;
-  const text = [styles.word, { color, fontSize: size, lineHeight: size * 1.1 }];
+  // Letters a little larger than `size`; the symbol's loops sit on the baseline,
+  // a touch taller than the lowercase letters, like a pair of o's.
+  const font = size * 1.15;
+  const text = [styles.word, { color, fontSize: font, lineHeight: font * 1.2 }];
   return (
     <View style={styles.row} accessible accessibilityLabel="Foodalise">
       <Text style={text}>F</Text>
-      <View style={{ marginHorizontal: size * 0.02, marginTop: size * 0.12 }}>
-        <LogoSymbol height={size * 0.78} onDark={dark} />
+      <View style={{ marginHorizontal: font * 0.03, transform: [{ translateY: font * 0.055 }] }}>
+        <LogoSymbol height={font * 0.63} onDark={dark} />
       </View>
       <Text style={text}>dalise</Text>
     </View>

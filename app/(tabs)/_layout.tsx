@@ -12,11 +12,12 @@ function icon(name: SymbolViewProps['name']) {
 }
 
 // The middle tab: an orange square with a plus, for reviewing a dish.
+// It has no label, so it's nudged down to sit level with the other tabs' icon and label together.
 function AddIcon() {
   const t = useTheme();
   return (
-    <View style={{ width: 56, height: 38, borderRadius: 14, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
-      <SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={t.accentInk} size={24} weight="bold" />
+    <View style={{ width: 64, height: 42, borderRadius: 15, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: 7 }] }}>
+      <SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={t.accentInk} size={28} weight="bold" />
     </View>
   );
 }
