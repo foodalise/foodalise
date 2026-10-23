@@ -1,63 +1,32 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Empty, ScorePill, Segmented } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
+import { coverPhoto, LIKED, placeDetail, rankDishes, rankRestaurants, TOP } from '@/lib/recommendations';
 import { photoUrl } from '@/lib/supabase';
-import { firstPhoto, type FeedReview } from '@/lib/types';
-
-const TOP = 10;
-const LIKED = 7; // only dishes scored this or more count as recommendations
+import type { FeedReview } from '@/lib/types';
 
 type Ranked = { id: string; title: string; detail: string; score: number; photo: string | null; href: () => void };
 
-// Someone's top 10, ranked by their own scores: the dishes they rated highest, and the
-// restaurants where their dishes averaged highest. Ties go to the more recent review.
+// Someone's top 10, ranked by their own scores (lib/recommendations.ts): the dishes they
+// rated highest, and the restaurants where their dishes averaged highest. On your own
+// page the share icon makes the list into a picture to post.
 export function Recommendations({ reviews, isMe, username }: { reviews: FeedReview[]; isMe: boolean; username: string | null }) {
   const t = useTheme();
   const [kind, setKind] = useState<'dishes' | 'restaurants'>('dishes');
 
-  // Each dish once, at their best score for it (reviews arrive newest first, so the newer wins a tie).
-  const best = new Map<string, FeedReview>();
-  for (const r of reviews) {
-    if (!r.dishes) continue;
-    const kept = best.get(r.dishes.id);
-    if (!kept || Number(r.rating) > Number(kept.rating)) best.set(r.dishes.id, r);
-  }
-  const dishes: Ranked[] = [...best.values()]
-    .filter((r) => Number(r.rating) >= LIKED)
-    .sort((a, b) => Number(b.rating) - Number(a.rating) || b.created_at.localeCompare(a.created_at))
-    .slice(0, TOP)
-    .map((r) => ({
-      id: r.id, title: r.dishes!.name, detail: r.dishes!.restaurants?.name ?? '', score: Number(r.rating), photo: firstPhoto(r),
-      href: () => router.push({ pathname: '/dish/[id]', params: { id: r.dishes!.id } }),
-    }));
-
-  const places = new Map<string, { id: string; name: string; picks: FeedReview[] }>();
-  for (const r of best.values()) {
-    const p = r.dishes?.restaurants;
-    if (!p) continue;
-    const place = places.get(p.id) ?? { id: p.id, name: p.name, picks: [] };
-    place.picks.push(r);
-    places.set(p.id, place);
-  }
-  const restaurants: Ranked[] = [...places.values()]
-    .map((p) => {
-      const picks = [...p.picks].sort((a, b) => Number(b.rating) - Number(a.rating));
-      const avg = picks.reduce((s, r) => s + Number(r.rating), 0) / picks.length;
-      const latest = picks.reduce((at, r) => (r.created_at > at ? r.created_at : at), '');
-      return { p, picks, avg, latest };
-    })
-    .filter((x) => x.avg >= LIKED)
-    .sort((a, b) => b.avg - a.avg || b.picks.length - a.picks.length || b.latest.localeCompare(a.latest))
-    .slice(0, TOP)
-    .map(({ p, picks, avg }) => ({
-      id: p.id, title: p.name, score: avg, photo: firstPhoto(picks[0]),
-      detail: picks.length === 1 ? `Had the ${picks[0].dishes!.name}` : `${picks.length} dishes · best: ${picks[0].dishes!.name}`,
-      href: () => router.push({ pathname: '/restaurant/[id]', params: { id: p.id } }),
-    }));
+  const dishes: Ranked[] = rankDishes(reviews).map((r) => ({
+    id: r.id, title: r.dishes!.name, detail: r.dishes!.restaurants?.name ?? '', score: Number(r.rating), photo: coverPhoto(r),
+    href: () => router.push({ pathname: '/dish/[id]', params: { id: r.dishes!.id } }),
+  }));
+  const restaurants: Ranked[] = rankRestaurants(reviews).map((p) => ({
+    id: p.id, title: p.name, detail: placeDetail(p.picks), score: p.avg, photo: coverPhoto(p.picks[0]),
+    href: () => router.push({ pathname: '/restaurant/[id]', params: { id: p.id } }),
+  }));
 
   const list = kind === 'dishes' ? dishes : restaurants;
   const who = isMe ? 'My' : username ? `@${username}'s` : 'Their';
@@ -65,11 +34,20 @@ export function Recommendations({ reviews, isMe, username }: { reviews: FeedRevi
     <View style={{ gap: 12 }}>
       <Segmented value={kind} onChange={setKind}
         options={[{ value: 'dishes', label: 'Dishes' }, { value: 'restaurants', label: 'Restaurants' }]} />
-      <View style={{ gap: 2 }}>
-        <Text style={{ color: t.ink, fontSize: 18, fontWeight: '800' }}>{who} recommendations</Text>
-        <Text style={{ color: t.muted, fontSize: 12 }}>
-          {kind === 'dishes' ? `Top ${TOP} dishes by ${isMe ? 'your' : 'their'} own scores.` : `Top ${TOP} restaurants by ${isMe ? 'your' : 'their'} average score there.`}
-        </Text>
+      <View style={styles.head}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: t.ink, fontSize: 18, fontWeight: '800' }}>{who} recommendations</Text>
+          <Text style={{ color: t.muted, fontSize: 12 }}>
+            {kind === 'dishes' ? `Top ${TOP} dishes by ${isMe ? 'your' : 'their'} own scores.` : `Top ${TOP} restaurants by ${isMe ? 'your' : 'their'} average score there.`}
+          </Text>
+        </View>
+        {isMe && list.length ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={`Share your top ${kind}`} hitSlop={8}
+            onPress={() => router.push({ pathname: '/top-list', params: { kind } })}
+            style={[styles.share, { borderColor: t.line }]}>
+            <SymbolView name="square.and.arrow.up" size={18} tintColor={t.ink} />
+          </Pressable>
+        ) : null}
       </View>
       {list.length ? list.map((item, i) => (
         <Pressable key={item.id} accessibilityRole="link" onPress={item.href} style={[styles.row, { borderBottomColor: t.line }]}>
@@ -91,6 +69,8 @@ export function Recommendations({ reviews, isMe, username }: { reviews: FeedRevi
 }
 
 const styles = StyleSheet.create({
+  head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  share: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   rank: { width: 26, fontSize: 20, fontWeight: '900', textAlign: 'center', fontVariant: ['tabular-nums'] },
   photo: { width: 52, height: 52, borderRadius: 8 },
