@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
@@ -54,6 +55,16 @@ function RootLayoutNav() {
     supabase.from('profiles').select('onboarded_at').eq('id', userId).maybeSingle().then(({ data }) => {
       if (data && !data.onboarded_at) router.replace('/welcome');
     });
+  }, [userId]);
+
+  // Count a visit when the app opens or comes back to the front; the database only
+  // counts it after 30 minutes away. The team sees the totals on the dashboard.
+  useEffect(() => {
+    if (!userId) return;
+    const record = () => { supabase.rpc('record_visit').then(() => {}); };
+    record();
+    const sub = AppState.addEventListener('change', (state) => { if (state === 'active') record(); });
+    return () => sub.remove();
   }, [userId]);
 
   if (loading) return null;

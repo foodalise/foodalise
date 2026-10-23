@@ -32,6 +32,20 @@ function lookupCost(l: Lookup) {
   return `About £${(l.used * 0.015).toFixed(2)}`;
 }
 
+// Space used, against Supabase's free plan (Pro allows 100 GB of files and 8 GB of database).
+type Storage = { file_bytes: number; files: number; database_bytes: number };
+const FREE_FILES = 1024 ** 3; // 1 GB
+const FREE_DATABASE = 500 * 1024 ** 2; // 500 MB
+function size(bytes: number) {
+  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
+}
+
+// Everyone who has signed up, with how many times they've used the app (see the visits migration).
+type Person = {
+  id: string; username: string; display_name: string | null; joined: string;
+  visits: number; last_seen: string | null; reviews: number;
+};
+
 type MenuReport = {
   restaurant_id: string; restaurant: string; postcode: string | null; problems: string[]; reports: number;
   last_reported: string; reported_by: string | null;
@@ -41,16 +55,21 @@ type MenuReport = {
 // and menus diners say are wrong. Only admins can open it (see the dashboard migration).
 export default function Dashboard() {
   const t = useTheme();
-  const [view, setView] = useState<'numbers' | 'reports' | 'menus'>('numbers');
+  const [view, setView] = useState<'numbers' | 'track' | 'reports' | 'menus'>('numbers');
   const [stats, setStats] = useState<Stats | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [menus, setMenus] = useState<MenuReport[]>([]);
   const [lookups, setLookups] = useState<Lookup[]>([]);
+  const [storage, setStorage] = useState<Storage | null>(null);
+  const [people, setPeople] = useState<Person[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [s, r, m, l] = await Promise.all([supabase.rpc('admin_stats'), supabase.rpc('admin_reports'), supabase.rpc('admin_menu_reports'), supabase.rpc('admin_lookups')]);
+    const [s, r, m, l, st, p] = await Promise.all([
+      supabase.rpc('admin_stats'), supabase.rpc('admin_reports'), supabase.rpc('admin_menu_reports'),
+      supabase.rpc('admin_lookups'), supabase.rpc('admin_storage'), supabase.rpc('admin_people'),
+    ]);
     if (s.error) { setError(/not allowed/i.test(s.error.message) ? "This page is only for the Foodalise team." : s.error.message); return; }
     setError(null);
     setStats(s.data as Stats);
@@ -59,6 +78,8 @@ export default function Dashboard() {
     setReports(((r.data as Report[] | null) ?? []).filter((x) => !seen.has(x.target_id) && !!seen.add(x.target_id)));
     setMenus((m.data as MenuReport[] | null) ?? []);
     setLookups((l.data as Lookup[] | null) ?? []);
+    setStorage((st.data as Storage | null) ?? null);
+    setPeople((p.data as Person[] | null) ?? []);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -126,9 +147,10 @@ export default function Dashboard() {
   return (
     <ScrollView style={{ backgroundColor: t.surface }} contentContainerStyle={{ padding: 16, gap: 16 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={t.muted} />}>
-      <UnderlineTabs value={view} onChange={setView}
+      <UnderlineTabs value={view} onChange={setView} spread
         options={[
           { value: 'numbers', label: 'Numbers' },
+          { value: 'track', label: 'Track' },
           { value: 'reports', label: `Reports${reports.length ? ` (${reports.length})` : ''}` },
           { value: 'menus', label: `Menus${menus.length ? ` (${menus.length})` : ''}` },
         ]} />
@@ -149,6 +171,27 @@ export default function Dashboard() {
               </View>
             ))}
           </View>
+
+          {storage ? (
+            <View style={[styles.box, { backgroundColor: t.card, borderColor: t.line }]}>
+              <Text style={[styles.heading, { color: t.ink }]}>Space used</Text>
+              {([
+                ['Photos', storage.file_bytes, FREE_FILES, `${storage.files} ${storage.files === 1 ? 'file' : 'files'}`],
+                ['Database', storage.database_bytes, FREE_DATABASE, 'reviews, menus, restaurants and accounts'],
+              ] as const).map(([label, used, limit, sub]) => (
+                <View key={label} style={{ gap: 4 }}>
+                  <View style={styles.row}>
+                    <Text style={{ color: t.ink, fontWeight: '700', flex: 1 }}>{label}</Text>
+                    <Text style={{ color: t.ink }}>{size(used)} of {size(limit)}</Text>
+                  </View>
+                  <View style={[styles.meter, { backgroundColor: t.line }]}>
+                    <View style={{ width: `${Math.min(100, Math.max(1, (100 * used) / limit))}%`, height: '100%', borderRadius: 4, backgroundColor: used > 0.8 * limit ? t.lo : t.accent }} />
+                  </View>
+                  <Text style={{ color: t.muted, fontSize: 12 }}>{Math.round((100 * used) / limit)}% of the free plan · {sub}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           {lookups.length ? (
             <View style={[styles.box, { backgroundColor: t.card, borderColor: t.line }]}>
@@ -199,6 +242,35 @@ export default function Dashboard() {
         </>
       ) : null}
 
+      {view === 'track' ? (
+        people.length ? (
+          <View style={[styles.box, { backgroundColor: t.card, borderColor: t.line }]}>
+            <View style={styles.row}>
+              <Text style={[styles.heading, { color: t.ink, flex: 1 }]}>{people.length} signed up</Text>
+              <Text style={{ color: t.muted, fontSize: 12 }}>times used</Text>
+            </View>
+            {people.map((p) => (
+              <Pressable key={p.id} onPress={() => router.push({ pathname: '/user/[id]', params: { id: p.id } })}
+                style={({ pressed }) => [styles.lookup, { borderTopColor: t.line, opacity: pressed ? 0.6 : 1 }]}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={{ color: t.ink, fontWeight: '700' }} numberOfLines={1}>
+                    {p.display_name || `@${p.username}`}{p.display_name ? <Text style={{ color: t.muted, fontWeight: '400' }}> @{p.username}</Text> : null}
+                  </Text>
+                  <Text style={{ color: t.muted, fontSize: 12 }}>
+                    Joined {new Date(p.joined).toLocaleDateString('en-GB')} · {p.reviews} {p.reviews === 1 ? 'review' : 'reviews'}
+                    {p.last_seen ? ` · last used ${new Date(p.last_seen).toLocaleDateString('en-GB')}` : ''}
+                  </Text>
+                </View>
+                <Text style={{ color: t.ink, fontSize: 20, fontWeight: '800' }}>{p.visits}</Text>
+              </Pressable>
+            ))}
+            <Text style={{ color: t.muted, fontSize: 12 }}>
+              A use is opening the app, or coming back to it after 30 minutes away. Counting started with this update.
+            </Text>
+          </View>
+        ) : <Empty title="Nobody yet" body="People who sign up will appear here." />
+      ) : null}
+
       {view === 'reports' ? (
         reports.length ? reports.map((r) => (
           <Pressable key={r.report_id} onPress={() => act(r)}
@@ -242,5 +314,6 @@ const styles = StyleSheet.create({
   chart: { flexDirection: 'row', alignItems: 'flex-end', height: 120, gap: 2 },
   barCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
   row: { flexDirection: 'row', gap: 8 },
+  meter: { height: 8, borderRadius: 4, overflow: 'hidden' },
   lookup: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
 });
