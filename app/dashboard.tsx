@@ -18,6 +18,20 @@ type Report = {
   report_id: string; kind: 'review' | 'comment'; reported_at: string; reason: string; reported_by: string;
   author: string | null; target_id: string; review_id: string | null; dish: string | null; body: string | null; reports: number;
 };
+// How the menu finder looked for restaurant websites (see the lookup counts migration).
+type Lookup = {
+  service: 'osm' | 'google' | 'search'; used: number; found: number;
+  used_last_month: number; found_last_month: number; cap: number | null;
+};
+const LOOKUP_NAME: Record<Lookup['service'], string> = { osm: 'OpenStreetMap', google: 'Google', search: 'Web search' };
+const GOOGLE_FREE = 1000; // Google's free lookups a month; each one over costs about 2.7p
+// Roughly what a month's lookups cost, in pounds.
+function lookupCost(l: Lookup) {
+  if (l.service === 'osm') return 'Free';
+  if (l.service === 'google') return l.used <= GOOGLE_FREE ? 'Free (under 1,000)' : `About £${((l.used - GOOGLE_FREE) * 0.027).toFixed(2)}`;
+  return `About £${(l.used * 0.015).toFixed(2)}`;
+}
+
 type MenuReport = {
   restaurant_id: string; restaurant: string; postcode: string | null; problems: string[]; reports: number;
   last_reported: string; reported_by: string | null;
@@ -31,11 +45,12 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [menus, setMenus] = useState<MenuReport[]>([]);
+  const [lookups, setLookups] = useState<Lookup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [s, r, m] = await Promise.all([supabase.rpc('admin_stats'), supabase.rpc('admin_reports'), supabase.rpc('admin_menu_reports')]);
+    const [s, r, m, l] = await Promise.all([supabase.rpc('admin_stats'), supabase.rpc('admin_reports'), supabase.rpc('admin_menu_reports'), supabase.rpc('admin_lookups')]);
     if (s.error) { setError(/not allowed/i.test(s.error.message) ? "This page is only for the Foodalise team." : s.error.message); return; }
     setError(null);
     setStats(s.data as Stats);
@@ -43,6 +58,7 @@ export default function Dashboard() {
     const seen = new Set<string>();
     setReports(((r.data as Report[] | null) ?? []).filter((x) => !seen.has(x.target_id) && !!seen.add(x.target_id)));
     setMenus((m.data as MenuReport[] | null) ?? []);
+    setLookups((l.data as Lookup[] | null) ?? []);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -75,6 +91,35 @@ export default function Dashboard() {
     ]);
   }
 
+  // Change the monthly limit for Google or web search. 0 switches it off.
+  function changeLimit(l: Lookup) {
+    if (l.service === 'osm') return;
+    const save = async (cap: number) => {
+      const { error: e } = await supabase.rpc('admin_set_lookup_limit', { service: l.service, monthly_cap: cap });
+      if (e) Alert.alert("Couldn't change the limit", e.message);
+      else load();
+    };
+    Alert.prompt(`${LOOKUP_NAME[l.service]} monthly limit`,
+      l.service === 'google'
+        ? 'Lookups a month. Up to 1,000 are free; each one over costs about 2.7p. 0 switches Google off.'
+        : 'Searches a month, about 1.5p each (250 is about £4). 0 switches web search off.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save', onPress: (value?: string) => {
+            const cap = Number((value ?? '').replace(/[^\d]/g, ''));
+            if (!value?.trim() || !Number.isFinite(cap)) return;
+            if (l.service === 'google' && cap > GOOGLE_FREE) {
+              Alert.alert('Google will charge for this', `Anything over 1,000 a month costs about 2.7p each, so up to about £${((cap - GOOGLE_FREE) * 0.027).toFixed(2)} a month.`, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Set it', onPress: () => save(cap) },
+              ]);
+            } else save(cap);
+          },
+        },
+      ], 'plain-text', String(l.cap ?? ''), 'number-pad');
+  }
+
   if (error) return <View style={{ flex: 1, backgroundColor: t.surface }}><Empty title={error} /></View>;
 
   const max = Math.max(1, ...(stats?.per_day ?? []).map((d) => d.reviews));
@@ -104,6 +149,27 @@ export default function Dashboard() {
               </View>
             ))}
           </View>
+
+          {lookups.length ? (
+            <View style={[styles.box, { backgroundColor: t.card, borderColor: t.line }]}>
+              <Text style={[styles.heading, { color: t.ink }]}>Finding restaurant websites this month</Text>
+              {lookups.map((l) => (
+                <Pressable key={l.service} disabled={l.service === 'osm'} onPress={() => changeLimit(l)}
+                  style={({ pressed }) => [styles.lookup, { borderTopColor: t.line, opacity: pressed ? 0.6 : 1 }]}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ color: t.ink, fontWeight: '700' }}>{LOOKUP_NAME[l.service]}</Text>
+                    <Text style={{ color: t.ink }}>
+                      {l.used}{l.cap != null ? ` of ${l.cap}` : ''} {l.used === 1 ? 'lookup' : 'lookups'} · {l.found} found
+                    </Text>
+                    <Text style={{ color: t.muted, fontSize: 12 }}>
+                      {lookupCost(l)} · last month {l.used_last_month} ({l.found_last_month} found)
+                    </Text>
+                  </View>
+                  {l.service !== 'osm' ? <Text style={{ color: t.accent, fontWeight: '700' }}>Change limit</Text> : null}
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
 
           <View style={[styles.box, { backgroundColor: t.card, borderColor: t.line }]}>
             <Text style={[styles.heading, { color: t.ink }]}>Reviews per day, last 14 days</Text>
@@ -176,4 +242,5 @@ const styles = StyleSheet.create({
   chart: { flexDirection: 'row', alignItems: 'flex-end', height: 120, gap: 2 },
   barCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
   row: { flexDirection: 'row', gap: 8 },
+  lookup: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
 });
