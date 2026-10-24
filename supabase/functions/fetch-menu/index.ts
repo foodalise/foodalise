@@ -58,6 +58,7 @@ const MAX_PAGES = 5; // homepage plus up to four menu pages or PDFs
 const REFRESH_EVERY_DAYS = 30; // any restaurant's menu, refreshed by diners at most this often
 const CHAIN_RETRY_DAYS = 3;
 const KEEP_IF_FEWER_THAN = 0.5; // a re-read must find at least half as many dishes as before
+const FULL_READ = 0.8; // and at least this share before it may hide dishes that weren't found
 
 // Same list as lib/cuisines.ts in the app.
 const CUISINES = [
@@ -621,7 +622,7 @@ function cleanDishes(dishes: Dish[]): Dish[] {
 
 // Re-reads a chain's menu and updates every branch, at most once a month per chain
 // (the Foodalise team, `anytime`, can refresh it whenever they like).
-async function refreshChain(admin: SupabaseClient<any>, slug: string, claimRefresh: () => Promise<Response | null>, anytime = false) {
+async function refreshChain(admin: SupabaseClient<any>, slug: string, branch: string, claimRefresh: () => Promise<Response | null>, anytime = false) {
   const due = new Date(Date.now() - REFRESH_EVERY_DAYS * 864e5).toISOString();
   const { data: source } = await admin.from('chain_menu_sources').select('read_at').eq('chain_slug', slug).maybeSingle();
   if (!source) return json({ status: 'no_website', added: 0 });
@@ -645,7 +646,7 @@ async function refreshChain(admin: SupabaseClient<any>, slug: string, claimRefre
     if (!reachable) return await finish('unreadable');
     const { count: before } = await admin.from('chain_dishes').select('*', { count: 'exact', head: true }).eq('chain_slug', slug);
     if (!dishes.length || dishes.length < (before ?? 0) * KEEP_IF_FEWER_THAN) return await finish('no_menu', 0, dishes.length);
-    const { data: added, error } = await admin.rpc('sync_chain_menu', { slug, items: dishes });
+    const { data: added, error } = await admin.rpc('sync_chain_menu', { slug, items: dishes, branch });
     if (error) throw error;
     return await finish('done', added ?? 0, dishes.length);
   } catch (e) {
@@ -706,7 +707,7 @@ Deno.serve(async (req) => {
   // It's only read when a diner asks for a refresh, or the branch has no menu at all.
   if (r.chain_slug && !given && !menuLink) {
     if (!refresh && r.menu_source !== 'none') return json({ status: 'done', added: 0 });
-    return await refreshChain(admin, r.chain_slug, claimRefresh, anytime);
+    return await refreshChain(admin, r.chain_slug, r.id, claimRefresh, anytime);
   }
 
   const { data: last } = await admin.from('menu_fetches').select('status, attempted_at, dishes_added').eq('restaurant_id', r.id).maybeSingle();
@@ -811,8 +812,10 @@ async function saveMenu(admin: SupabaseClient<any>, r: RestaurantRow, { dishes, 
     if (renamed) {
       ({ data: existing } = await admin.from('dishes').select('id, name, section, price_pence, source, on_menu, diets, review_count').eq('restaurant_id', r.id));
     }
-    // Gone from the menu: hidden, unless people have reviewed it.
-    const gone = (existing ?? []).filter((d) => d.source === 'website' && d.on_menu && d.review_count === 0 && !byName.has(d.name.toLowerCase())).map((d) => d.id);
+    // Gone from the menu: hidden, unless people have reviewed it. Only when this read found
+    // (nearly) the whole menu; a part-read page just adds and updates dishes.
+    const fullRead = dishes.length >= Math.ceil(fromSite.filter((d) => d.on_menu).length * FULL_READ);
+    const gone = !fullRead ? [] : (existing ?? []).filter((d) => d.source === 'website' && d.on_menu && d.review_count === 0 && !byName.has(d.name.toLowerCase())).map((d) => d.id);
     if (gone.length) await admin.from('dishes').update({ on_menu: false }).in('id', gone);
     for (const d of existing ?? []) {
       const now = byName.get(d.name.toLowerCase());
