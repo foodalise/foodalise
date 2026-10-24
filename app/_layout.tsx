@@ -76,7 +76,8 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={navTheme}>
       <Stack>
-        <Stack.Protected guard={signedIn}>
+        {/* Signed out, anything private goes to sign-in (not the first public page, e.g. Terms). */}
+        <Stack.Protected guard={signedIn} redirectTo="/sign-in">
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="restaurant/[id]" options={{ title: '' }} />
           <Stack.Screen name="dish/[id]" options={{ title: '' }} />
@@ -91,7 +92,7 @@ function RootLayoutNav() {
           <Stack.Screen name="food-type" options={{ title: 'Food type', presentation: 'modal' }} />
           <Stack.Screen name="welcome" options={{ headerShown: false, gestureEnabled: false }} />
         </Stack.Protected>
-        <Stack.Protected guard={!signedIn}>
+        <Stack.Protected guard={!signedIn} redirectTo="/">
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Screen name="privacy" options={{ title: 'Privacy policy' }} />
