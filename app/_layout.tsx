@@ -89,6 +89,7 @@ function RootLayoutNav() {
           <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
           <Stack.Screen name="follows" options={{ title: '' }} />
           <Stack.Screen name="top-list" options={{ title: 'Share your top 10' }} />
+          <Stack.Screen name="review-dish" options={{ title: 'Review a dish' }} />
           <Stack.Screen name="dashboard" options={{ title: 'Dashboard' }} />
           <Stack.Screen name="food-type" options={{ title: 'Food type', presentation: 'modal' }} />
           <Stack.Screen name="welcome" options={{ headerShown: false, gestureEnabled: false }} />

@@ -360,7 +360,7 @@ export default function RestaurantScreen() {
           <PhotoGallery photos={photos} />
         </View>
       ) : null}
-      <Button title="Review a dish here" onPress={() => router.push({ pathname: '/review', params: { restaurantId: id } })} />
+      <Button title="Review a dish here" onPress={() => router.push({ pathname: '/review-dish', params: { restaurantId: id } })} />
       {/* Only while there's no menu: once dishes are listed, a snap would just add near-duplicates. */}
       {onMenu?.length === 0 ? <SnapMenuButton restaurantId={id} onAdded={loadDishes} /> : null}
       {lookingUp ? (

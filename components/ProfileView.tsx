@@ -246,7 +246,7 @@ export function ProfileView({ userId }: { userId: string }) {
   const avg = reviews.length ? reviews.reduce((s, r) => s + Number(r.rating), 0) / reviews.length : null;
   // The last square on your own grid: a shortcut to review another dish.
   const addTile = (
-    <Pressable key="add" accessibilityRole="button" onPress={() => router.push('/review')}
+    <Pressable key="add" accessibilityRole="button" onPress={() => router.push('/review-dish')}
       style={{ width: cell, height: cell, borderRadius: 6, backgroundColor: t.card, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
       <Text style={{ color: t.muted, fontSize: 30, fontWeight: '300' }}>+</Text>
       <Text style={{ color: t.muted, fontSize: 13 }}>Add a dish</Text>
