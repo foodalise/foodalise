@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 
 import { OverallBar, ScoreSlider } from '@/components/ScoreSlider';
 import { SnapMenuButton } from '@/components/SnapMenuButton';
@@ -40,7 +40,7 @@ export default function Review() {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const [nearby, setNearby] = useState<NearbyRestaurant[] | null>(null);
   const [locationOff, setLocationOff] = useState(false);
 

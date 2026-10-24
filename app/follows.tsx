@@ -69,7 +69,7 @@ export default function FollowsScreen() {
         ListEmptyComponent={people ? (
           <Empty title={tab === 'followers' ? 'No followers yet' : 'Not following anyone yet'}
             body={tab === 'followers' ? 'When people follow, they will show here.' : 'People they follow will show here.'} />
-        ) : null}
+        ) : undefined}
         renderItem={({ item }) => {
           const on = mine.has(item.id);
           return (

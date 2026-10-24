@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 
 import { Button, Empty, Field, ReviewCard } from '@/components/ui';
 import { useTheme } from '@/constants/theme';
@@ -19,7 +19,7 @@ export default function CommentsScreen() {
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
 
   const refresh = useCallback(async () => {
     const [{ data }, list] = await Promise.all([

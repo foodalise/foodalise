@@ -73,7 +73,7 @@ export function BestNearMe({ header }: { header: ReactElement }) {
 
   const empty = noLocation
     ? <Empty title="Turn on location" body="Best near me needs your location to find dishes around you. You can switch it on in Settings." />
-    : dishes === null ? null
+    : dishes === null ? undefined
     : diet
       ? <Empty title="Nothing reviewed nearby yet" body="Try a bigger distance, or turn off the diet filter. Diets come from restaurant menus, so some places may be missing." />
     : q.trim()

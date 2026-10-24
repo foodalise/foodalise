@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View, type HostInstance } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 
@@ -21,7 +21,7 @@ export default function ShareScreen() {
   const [review, setReview] = useState<FeedReview | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const card = useRef<View>(null);
+  const card = useRef<HostInstance>(null);
   const cardWidth = Math.min(width - 32, 400);
 
   useEffect(() => {
