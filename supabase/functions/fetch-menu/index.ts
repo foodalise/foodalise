@@ -622,11 +622,13 @@ function cleanDishes(dishes: Dish[]): Dish[] {
 
 // Re-reads a chain's menu and updates every branch, at most once a month per chain
 // (the Foodalise team, `anytime`, can refresh it whenever they like).
-async function refreshChain(admin: SupabaseClient<any>, slug: string, branch: string, claimRefresh: () => Promise<Response | null>, anytime = false) {
+// `link` (team only) reads the menu from that page instead, and keeps it for next time.
+async function refreshChain(admin: SupabaseClient<any>, slug: string, branch: string, claimRefresh: () => Promise<Response | null>, anytime = false, link: string | null = null) {
   const due = new Date(Date.now() - REFRESH_EVERY_DAYS * 864e5).toISOString();
   const { data: source } = await admin.from('chain_menu_sources').select('read_at').eq('chain_slug', slug).maybeSingle();
-  if (!source) return json({ status: 'no_website', added: 0 });
-  if (!anytime && source.read_at && source.read_at > due) return json({ status: 'too_soon', added: 0 });
+  if (link) await admin.from('chain_menu_sources').upsert({ chain_slug: slug, menu_url: link }, { onConflict: 'chain_slug', ignoreDuplicates: true });
+  else if (!source) return json({ status: 'no_website', added: 0 });
+  else if (!anytime && source.read_at && source.read_at > due) return json({ status: 'too_soon', added: 0 });
   const used = await claimRefresh();
   if (used) return used;
   // Claim the chain so two people refreshing branches at once don't both read it.
@@ -638,11 +640,12 @@ async function refreshChain(admin: SupabaseClient<any>, slug: string, branch: st
   const finish = async (status: string, added = 0, found: number | null = null) => {
     // A failed read is tried again after a few days rather than a month.
     const readAt = status === 'done' ? new Date() : new Date(Date.now() - (REFRESH_EVERY_DAYS - CHAIN_RETRY_DAYS) * 864e5);
-    await admin.from('chain_menu_sources').update({ status, dishes_found: found, read_at: readAt.toISOString() }).eq('chain_slug', slug);
+    const keep = status === 'done' && link ? { menu_url: link } : {};
+    await admin.from('chain_menu_sources').update({ status, dishes_found: found, read_at: readAt.toISOString(), ...keep }).eq('chain_slug', slug);
     return json({ status, added });
   };
   try {
-    const { reachable, dishes } = await readWebsite(claimed[0].menu_url);
+    const { reachable, dishes } = await readWebsite(link ?? claimed[0].menu_url);
     if (!reachable) return await finish('unreadable');
     const { count: before } = await admin.from('chain_dishes').select('*', { count: 'exact', head: true }).eq('chain_slug', slug);
     if (!dishes.length || dishes.length < (before ?? 0) * KEEP_IF_FEWER_THAN) return await finish('no_menu', 0, dishes.length);
@@ -704,8 +707,10 @@ Deno.serve(async (req) => {
   };
 
   // A chain branch gets the chain's menu, unless a diner typed in a website for it.
+  // A menu link from the team on a chain branch updates the whole chain.
   // It's only read when a diner asks for a refresh, or the branch has no menu at all.
-  if (r.chain_slug && !given && !menuLink) {
+  if (r.chain_slug && !given) {
+    if (menuLink) return await refreshChain(admin, r.chain_slug, r.id, claimRefresh, anytime, menuLink);
     if (!refresh && r.menu_source !== 'none') return json({ status: 'done', added: 0 });
     return await refreshChain(admin, r.chain_slug, r.id, claimRefresh, anytime);
   }
