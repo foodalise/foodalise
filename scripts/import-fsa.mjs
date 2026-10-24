@@ -10,6 +10,8 @@
 //   node scripts/import-fsa.mjs --list-authorities        # find an authority id
 //   node scripts/import-fsa.mjs --authority 197           # import one authority
 //   node scripts/import-fsa.mjs --council Brent           # import one council by name
+//   node scripts/import-fsa.mjs --existing                # refresh every council already imported
+//                                                         # (the monthly GitHub Action runs this)
 //
 // Needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment (never ship
 // the service role key in the app). Data: https://ratings.food.gov.uk/open-data
@@ -124,11 +126,38 @@ async function importCouncil(db, name) {
   await importAuthority(db, matches[0].LocalAuthorityId);
 }
 
+// Every council that already has places in Foodalise, so the monthly refresh picks
+// up new openings wherever we've imported, without anyone listing the areas.
+async function importExisting(db) {
+  const { authorities } = await fsa('/Authorities');
+  const ours = [];
+  for (const a of authorities) {
+    const { count, error } = await db.from('restaurants').select('id', { count: 'exact', head: true }).eq('local_authority', a.Name);
+    if (error) throw new Error(`Supabase lookup failed: ${error.message}`);
+    if (count) ours.push(a);
+  }
+  console.log(`Refreshing ${ours.length} councils already in Foodalise…`);
+  let total = 0;
+  for (const [i, a] of ours.entries()) {
+    console.log(`\n[${i + 1}/${ours.length}] ${a.Name}`);
+    try {
+      total += await importAuthority(db, a.LocalAuthorityId);
+    } catch (e) {
+      console.warn(`Skipped ${a.Name}: ${e.message}`);
+    }
+  }
+  console.log(`\nAll done: ${total} places checked.`);
+}
+
 const args = process.argv.slice(2);
 const regionAt = args.indexOf('--region');
 const councilAt = args.indexOf('--council');
 if (args.includes('--list-authorities')) {
   await listAuthorities();
+} else if (args.includes('--existing')) {
+  const db = connect();
+  await importExisting(db);
+  await applyChainMenus(db);
 } else if (councilAt >= 0) {
   const db = connect();
   await importCouncil(db, args[councilAt + 1] ?? '');
