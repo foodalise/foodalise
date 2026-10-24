@@ -283,7 +283,7 @@ export function ReviewCard({ review, onComment }: { review: FeedReview; onCommen
       {review.taste != null && review.presentation != null && review.value != null ? (
         <Text style={{ color: t.muted, fontSize: 14 }}>
           Taste {formatScore(review.taste)} · Presentation {formatScore(review.presentation)}
-          {review.ingredients != null ? ` · Ingredients ${formatScore(review.ingredients)}` : ''} · Value {formatScore(review.value)}
+          {review.ingredients != null ? ` · Quality ${formatScore(review.ingredients)}` : ''} · Value {formatScore(review.value)}
         </Text>
       ) : null}
       {review.body ? <Text style={{ color: t.ink, lineHeight: 21, fontSize: 15 }}>“{review.body}”</Text> : null}
