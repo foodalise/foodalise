@@ -67,7 +67,7 @@ export default function DishScreen() {
       </View>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <View style={{ flex: 1 }}>
-          <Button title="Review this dish" onPress={() => router.push({ pathname: '/review', params: { dishId: id } })} />
+          <Button title="Review this dish" onPress={() => router.push({ pathname: '/review-dish', params: { dishId: id } })} />
         </View>
         <View style={{ flex: 1 }}>
           <Button variant="ghost" title={wanted ? '✓ Want to try' : '+ Want to try'} onPress={toggleWanted} />
