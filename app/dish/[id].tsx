@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
-import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Link, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button, Empty, Label, ReviewCard, ScorePill } from '@/components/ui';
@@ -23,10 +23,13 @@ export default function DishScreen() {
   useEffect(() => {
     supabase.from('dishes').select('id, name, section, restaurants(id, name)').eq('id', id).single<Dish>()
       .then(({ data }) => setDish(data));
-    supabase.from('reviews').select(REVIEW_SELECT).eq('dish_id', id).order('created_at', { ascending: false })
-      .returns<FeedReview[]>().then(({ data }) => setReviews(data ?? []));
     isWanted(id).then(setWantedState);
   }, [id]);
+  // Reload on focus so a review just posted shows when coming back here.
+  useFocusEffect(useCallback(() => {
+    supabase.from('reviews').select(REVIEW_SELECT).eq('dish_id', id).order('created_at', { ascending: false })
+      .returns<FeedReview[]>().then(({ data }) => setReviews(data ?? []));
+  }, [id]));
 
   async function toggleWanted() {
     if (!me) return;

@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useNavigationContainerRef } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 
@@ -29,6 +29,7 @@ export default function Review() {
   const t = useTheme();
   const { session } = useAuth();
   const params = useLocalSearchParams<{ restaurantId?: string; dishId?: string }>();
+  const rootNav = useNavigationContainerRef();
 
   const [restaurant, setRestaurant] = useState<Pick<Restaurant, 'id' | 'name' | 'address'> | null>(null);
   const [dish, setDish] = useState<Dish | null>(null);
@@ -126,7 +127,14 @@ export default function Review() {
       await postReview({ userId: session.user.id, dishId: dish.id, ...scores, body, photo });
       const id = dish.id;
       reset();
-      router.push({ pathname: '/dish/[id]', params: { id } });
+      // Opened from another page (e.g. "Review this dish"), going back from the dish
+      // should land on that page, not on this form.
+      const root = rootNav.getRootState();
+      const openedOnTop = root && root.index > 0 && root.routes[root.index].name === '(tabs)';
+      const before = openedOnTop ? root.routes[root.index - 1] : null;
+      if (before?.name === 'dish/[id]' && (before.params as { id?: string } | undefined)?.id === id) router.back();
+      else if (openedOnTop) router.replace({ pathname: '/dish/[id]', params: { id } });
+      else router.push({ pathname: '/dish/[id]', params: { id } });
     } catch (e) {
       setError((e as Error).message);
     } finally {
