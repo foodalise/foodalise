@@ -75,7 +75,8 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={navTheme}>
-      <Stack>
+      {/* Solid header so pages start below it (the iOS 26 glass header is see-through), and a plain back arrow. */}
+      <Stack screenOptions={{ headerTransparent: false, headerShadowVisible: false, headerBackButtonDisplayMode: 'minimal' }}>
         {/* Signed out, anything private goes to sign-in (not the first public page, e.g. Terms). */}
         <Stack.Protected guard={signedIn} redirectTo="/sign-in">
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
