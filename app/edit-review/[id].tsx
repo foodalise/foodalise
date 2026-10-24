@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 
 import { OverallBar, ScoreSlider } from '@/components/ScoreSlider';
 import { Button, Empty, Field, Label } from '@/components/ui';
@@ -30,7 +30,7 @@ export default function EditReview() {
   const [photo, setPhoto] = useState<PickedPhoto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
 
   useEffect(() => {
     supabase.from('reviews').select(REVIEW_SELECT).eq('id', id).maybeSingle<FeedReview>().then(({ data }) => {

@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, ScrollView, Text, useWindowDimensions, View, type HostInstance } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
 import { Wordmark } from '@/components/Logo';
@@ -42,7 +42,7 @@ export default function TopList() {
   const [area, setArea] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
-  const card = useRef<View>(null);
+  const card = useRef<HostInstance>(null);
   const cardWidth = Math.min(width - 32, 360);
   const scale = cardWidth / 360;
 

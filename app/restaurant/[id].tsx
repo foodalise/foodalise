@@ -1,7 +1,7 @@
 import { Link, router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SymbolView } from 'expo-symbols';
-import { ActivityIndicator, Alert, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
 
 import { DishThumb } from '@/components/DishThumb';
 import { FoodBadge } from '@/components/FoodBadge';
@@ -61,7 +61,7 @@ export default function RestaurantScreen() {
   const [find, setFind] = useState('');
   const [finding, setFinding] = useState(false);
   const { height } = useWindowDimensions();
-  const scroller = useRef<ScrollView>(null);
+  const scroller = useRef<ScrollViewInstance>(null);
   const searchY = useRef(0);
   const dragging = useRef(false);
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
